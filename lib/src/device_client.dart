@@ -93,6 +93,9 @@ class DeviceClient {
       final info = DeviceInfo.decode(response.payload);
       modern = true;
       capabilities = info.capabilities & Capability.all;
+      if (capabilities & Capability.edges == 0) {
+        capabilities &= ~(Capability.edgeArrowKeys | Capability.edgeRepeat);
+      }
       firmware = info.firmware;
     }
     return readConfig();
@@ -103,6 +106,12 @@ class DeviceClient {
       final config = TouchpadConfig.decode(
         (await request(Command.read)).payload,
       );
+      if ((capabilities & Capability.edgeArrowKeys == 0 &&
+              config.edges.any((e) => e.action.isArrowKey)) ||
+          (capabilities & Capability.edgeRepeat == 0 &&
+              config.repeatMask != 0)) {
+        throw const FormatException('边缘扩展配置与固件能力不一致');
+      }
       known = capabilities;
       return config;
     }

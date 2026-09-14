@@ -7,7 +7,9 @@ abstract final class Capability {
   static const rotation = 8;
   static const sleep = 16;
   static const edges = 32;
-  static const all = 63;
+  static const edgeArrowKeys = 64;
+  static const edgeRepeat = 128;
+  static const all = 255;
 }
 
 enum EdgeSide {
@@ -19,10 +21,21 @@ enum EdgeSide {
   int get maxWidthPercent => this == top || this == bottom ? 30 : 15;
 }
 
-enum EdgeAction { off, brightness, volume, verticalWheel, horizontalWheel }
+enum EdgeAction {
+  off,
+  brightness,
+  volume,
+  verticalWheel,
+  horizontalWheel,
+  verticalArrowKeys,
+  horizontalArrowKeys;
+
+  bool get isArrowKey =>
+      this == verticalArrowKeys || this == horizontalArrowKeys;
+}
 
 const edgeNames = ['上边缘', '下边缘', '左边缘', '右边缘'];
-const actionNames = ['关闭', '亮度', '音量', '垂直滚轮', '水平滚轮'];
+const actionNames = ['关闭', '亮度', '音量', '垂直滚轮', '水平滚轮', '上下方向键', '左右方向键'];
 const rotationNames = ['横向', '纵向', '横向翻转', '纵向翻转'];
 
 class EdgeConfig {
@@ -32,24 +45,28 @@ class EdgeConfig {
     this.reversed = false,
     this.width = 5,
     this.step = 2,
+    this.repeatWhileHeld = false,
   });
   final bool enabled;
   final EdgeAction action;
   final bool reversed;
   final int width;
   final int step;
+  final bool repeatWhileHeld;
   EdgeConfig copyWith({
     bool? enabled,
     EdgeAction? action,
     bool? reversed,
     int? width,
     int? step,
+    bool? repeatWhileHeld,
   }) => EdgeConfig(
     enabled: enabled ?? this.enabled,
     action: action ?? this.action,
     reversed: reversed ?? this.reversed,
     width: width ?? this.width,
     step: step ?? this.step,
+    repeatWhileHeld: repeatWhileHeld ?? this.repeatWhileHeld,
   );
   List<int> get bytes => [
     enabled ? 1 : 0,
@@ -74,6 +91,8 @@ class EdgeConfig {
       EdgeAction.volume => '$a 增加音量 · $b 降低音量',
       EdgeAction.verticalWheel => '$a 向上滚动 · $b 向下滚动',
       EdgeAction.horizontalWheel => '$a 向右滚动 · $b 向左滚动',
+      EdgeAction.verticalArrowKeys => '$a 按 ↑ · $b 按 ↓',
+      EdgeAction.horizontalArrowKeys => '$a 按 → · $b 按 ←',
     };
   }
 }
@@ -151,7 +170,7 @@ class TouchpadConfig {
       strong,
       rotation,
       sleepEnabled ? 1 : 0,
-      0,
+      repeatMask,
     ]);
     ByteData.sublistView(b).setUint32(8, sleepMs, Endian.little);
     for (var i = 0; i < 4; i++) {
@@ -161,7 +180,7 @@ class TouchpadConfig {
   }
 
   static TouchpadConfig decode(Uint8List b) {
-    if (b.length != byteLength || b[7] != 0 || b[6] > 1) {
+    if (b.length != byteLength || b[7] & 0xf0 != 0 || b[6] > 1) {
       throw const FormatException('配置长度或保留字段错误');
     }
     final edges = <EdgeConfig>[];
@@ -176,6 +195,7 @@ class TouchpadConfig {
           reversed: b[i + 2] == 1,
           width: b[i + 3],
           step: b[i + 4],
+          repeatWhileHeld: b[7] & (1 << ((i - 12) ~/ 5)) != 0,
         ),
       );
     }
@@ -195,6 +215,27 @@ class TouchpadConfig {
     return c;
   }
 
+  int get repeatMask => edges.asMap().entries.fold(
+    0,
+    (mask, entry) => mask | (entry.value.repeatWhileHeld ? 1 << entry.key : 0),
+  );
+
+  // An unsupported action keeps the entire edge mapping unchanged, so a
+  // preview cannot accidentally enable the old device action. Repeat is
+  // negotiated independently and does not change the five-byte edge layout.
+  EdgeConfig _mergeEdge(EdgeConfig current, EdgeConfig draft, int mask) {
+    if (draft.action.isArrowKey && mask & Capability.edgeArrowKeys == 0) {
+      return current;
+    }
+    final base = mask & Capability.edges != 0 ? draft : current;
+    return base.copyWith(
+      repeatWhileHeld:
+          mask & Capability.edges != 0 && mask & Capability.edgeRepeat != 0
+          ? draft.repeatWhileHeld
+          : current.repeatWhileHeld,
+    );
+  }
+
   // Preserve every unsupported device field when submitting a draft.
   TouchpadConfig merge(TouchpadConfig draft, int mask) => copyWith(
     intensity: mask & Capability.intensity != 0 ? draft.intensity : intensity,
@@ -209,7 +250,7 @@ class TouchpadConfig {
         ? draft.sleepEnabled
         : sleepEnabled,
     sleepMs: mask & Capability.sleep != 0 ? draft.sleepMs : sleepMs,
-    edges: mask & Capability.edges != 0 ? draft.edges : edges,
+    edges: List.generate(4, (i) => _mergeEdge(edges[i], draft.edges[i], mask)),
   );
   bool same(TouchpadConfig other, [int mask = Capability.all]) {
     final a = [
@@ -221,6 +262,7 @@ class TouchpadConfig {
       rotation,
       sleepEnabled,
       sleepMs,
+      repeatMask,
       ...edges.expand((e) => e.bytes),
     ];
     final m = merge(other, mask);
@@ -233,6 +275,7 @@ class TouchpadConfig {
       m.rotation,
       m.sleepEnabled,
       m.sleepMs,
+      m.repeatMask,
       ...m.edges.expand((e) => e.bytes),
     ];
     return List.generate(a.length, (i) => a[i] == b[i]).every((v) => v);

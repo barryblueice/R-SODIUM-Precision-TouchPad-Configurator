@@ -64,8 +64,38 @@ void main() {
     final info = DeviceInfo.decode(
       Packet.decode(fixtures['info_response']!).payload,
     );
-    expect(info.capabilities, Capability.all);
+    expect(info.capabilities, 0x3f);
     expect(info.firmware, '1.0.0');
+    final extendedInfo = DeviceInfo.decode(
+      Packet.decode(fixtures['extended_info_response']!).payload,
+    );
+    expect(extendedInfo.capabilities, Capability.all);
+    expect(extendedInfo.firmware, '1.1.0');
+    final extendedConfig = TouchpadConfig(
+      edges: const [
+        EdgeConfig(
+          enabled: true,
+          action: EdgeAction.horizontalArrowKeys,
+          repeatWhileHeld: true,
+        ),
+        EdgeConfig(),
+        EdgeConfig(
+          enabled: true,
+          action: EdgeAction.verticalArrowKeys,
+          reversed: true,
+          repeatWhileHeld: true,
+        ),
+        EdgeConfig(),
+      ],
+    );
+    expect(
+      Packet(Command.write, 5, payload: extendedConfig.encode()).encode(),
+      fixtures['edge_extensions_write_request'],
+    );
+    expect(
+      Packet(Command.read, 6, payload: extendedConfig.encode()).encode(),
+      fixtures['edge_extensions_read_response'],
+    );
   });
   test('64 firmware bytes are distinct from 65 Windows bytes', () {
     final report = Uint8List.fromList([0, ...fixtures['info_request']!]);
@@ -124,9 +154,9 @@ void main() {
     () {
       for (final change in [
         (6, 2),
-        (7, 1),
+        (7, 16),
         (12, 2),
-        (13, 5),
+        (13, 7),
         (14, 2),
         (15, 31),
         (20, 31),
@@ -179,5 +209,45 @@ void main() {
       e.copyWith(action: EdgeAction.horizontalWheel).direction(EdgeSide.bottom),
       '向右 向右滚动 · 向左 向左滚动',
     );
+  });
+  test('Arrow actions and independent repeat bits retain 32-byte layout', () {
+    for (var mask = 0; mask < 16; mask++) {
+      final config = TouchpadConfig(
+        edges: [
+          for (final side in EdgeSide.values)
+            EdgeConfig(
+              enabled: true,
+              action: side.index.isEven
+                  ? EdgeAction.verticalArrowKeys
+                  : EdgeAction.horizontalArrowKeys,
+              reversed: side.index.isOdd,
+              repeatWhileHeld: mask & (1 << side.index) != 0,
+            ),
+        ],
+      );
+      final bytes = config.encode();
+      expect(bytes.length, 32);
+      expect(bytes[7], mask);
+      expect([bytes[13], bytes[18], bytes[23], bytes[28]], [5, 6, 5, 6]);
+      expect(TouchpadConfig.decode(bytes).same(config), isTrue);
+    }
+    for (final side in EdgeSide.values) {
+      final positive = side.index < 2 ? '向右' : '向上';
+      final negative = side.index < 2 ? '向左' : '向下';
+      for (final reversed in [false, true]) {
+        final a = reversed ? negative : positive;
+        final b = reversed ? positive : negative;
+        final edge = EdgeConfig(
+          enabled: true,
+          action: EdgeAction.verticalArrowKeys,
+          reversed: reversed,
+        );
+        expect(edge.direction(side), '$a 按 ↑ · $b 按 ↓');
+        expect(
+          edge.copyWith(action: EdgeAction.horizontalArrowKeys).direction(side),
+          '$a 按 → · $b 按 ←',
+        );
+      }
+    }
   });
 }

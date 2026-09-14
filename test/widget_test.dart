@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:r_sodium_precision_touchpad_configurator/src/app.dart';
 import 'package:r_sodium_precision_touchpad_configurator/src/app_controller.dart';
+import 'package:r_sodium_precision_touchpad_configurator/src/config.dart';
 import 'package:r_sodium_precision_touchpad_configurator/src/transport.dart';
 
 void main() {
@@ -168,6 +169,77 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     }
+  });
+  testWidgets(
+    'Arrow bindings and held-action checkboxes save independently per edge',
+    (tester) async {
+      final c = await show(
+        tester,
+        connected: true,
+        size: const Size(1280, 1100),
+      );
+      await tester.tap(find.text('边缘滑动').first);
+      await tester.pumpAndSettle();
+      for (final side in EdgeSide.values) {
+        await tester.ensureVisible(
+          find.widgetWithText(ChoiceChip, edgeNames[side.index]),
+        );
+        await tester.tap(
+          find.widgetWithText(ChoiceChip, edgeNames[side.index]),
+        );
+        await tester.pumpAndSettle();
+        final dropdown = find.byType(DropdownButtonFormField<EdgeAction>);
+        await tester.ensureVisible(dropdown);
+        await tester.tap(dropdown);
+        await tester.pumpAndSettle();
+        final action = side.index.isEven
+            ? EdgeAction.verticalArrowKeys
+            : EdgeAction.horizontalArrowKeys;
+        await tester.tap(find.text(actionNames[action.index]).last);
+        await tester.pumpAndSettle();
+        final heldAction = find.widgetWithText(CheckboxListTile, '手指不抬起继续动作');
+        await tester.ensureVisible(heldAction);
+        expect(heldAction, findsOneWidget);
+        await tester.tap(heldAction);
+        await tester.pumpAndSettle();
+        expect(c.draft.edges[side.index].action, action);
+        expect(c.draft.edges[side.index].repeatWhileHeld, isTrue);
+        expect(c.current!.edges[side.index].repeatWhileHeld, isFalse);
+      }
+      final dropdown = find.byType(DropdownButtonFormField<EdgeAction>);
+      await tester.ensureVisible(dropdown);
+      await tester.tap(dropdown);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(actionNames[EdgeAction.off.index]).last);
+      await tester.pumpAndSettle();
+      expect(c.draft.edges[EdgeSide.right.index].enabled, isFalse);
+      expect(c.draft.edges[EdgeSide.right.index].repeatWhileHeld, isTrue);
+      await tester.ensureVisible(find.text('启用此边缘'));
+      await tester.tap(find.text('启用此边缘'));
+      await tester.pumpAndSettle();
+      expect(c.draft.edges[EdgeSide.right.index].enabled, isTrue);
+      expect(c.draft.edges[EdgeSide.right.index].repeatWhileHeld, isTrue);
+      await tester.tap(find.text('保存到演示设备'));
+      await tester.pumpAndSettle();
+      expect(c.current!.repeatMask, 15);
+      expect(c.current!.same(c.draft), isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets('Unsupported repeat remains a preview and cannot enable saving', (
+    tester,
+  ) async {
+    final c = await show(tester, connected: true, legacy: true);
+    await tester.tap(find.text('边缘滑动').first);
+    await tester.pumpAndSettle();
+    final heldAction = find.widgetWithText(CheckboxListTile, '手指不抬起继续动作');
+    await tester.ensureVisible(heldAction);
+    await tester.tap(heldAction);
+    await tester.pumpAndSettle();
+    expect(find.text('需要固件支持；可预览，暂不发送。'), findsOneWidget);
+    expect(c.draft.edges[2].repeatWhileHeld, isTrue);
+    expect(c.canApply, isFalse);
+    expect(tester.takeException(), isNull);
   });
   testWidgets('Failed apply shows error and keeps draft visible', (
     tester,

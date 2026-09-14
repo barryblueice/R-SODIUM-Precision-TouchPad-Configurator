@@ -28,6 +28,122 @@ class CapabilityLossTransport extends MockHidTransport {
 
 void main() {
   test(
+    'Original RSTP preserves arrow and repeat drafts without writing them',
+    () async {
+      final mock = MockHidTransport(capabilities: 0x3f);
+      final c = AppController(transport: mock);
+      addTearDown(c.dispose);
+      await c.scan();
+      c.update(
+        c.draft.copyWith(
+          edges: [
+            const EdgeConfig(
+              enabled: true,
+              action: EdgeAction.verticalArrowKeys,
+              reversed: true,
+              repeatWhileHeld: true,
+            ),
+            ...c.draft.edges.skip(1),
+          ],
+        ),
+      );
+      expect(c.canApply, isFalse);
+      expect(c.unsupportedChanges, isTrue);
+      await c.apply();
+      expect(mock.writes, 0);
+      c.update(c.draft.copyWith(intensity: 75));
+      await c.apply();
+      expect(mock.config.intensity, 75);
+      expect(mock.config.edges[0].enabled, isFalse);
+      expect(mock.config.edges[0].action, EdgeAction.off);
+      expect(mock.config.repeatMask, 0);
+      expect(c.draft.edges[0].repeatWhileHeld, isTrue);
+      expect(c.draft.edges[0].action, EdgeAction.verticalArrowKeys);
+      expect(c.edited, isTrue);
+      expect(c.unsupportedChanges, isTrue);
+      expect(c.error, isNull);
+    },
+  );
+  test('Edge extensions are negotiated independently and read back', () async {
+    for (final extra in [
+      0,
+      Capability.edgeArrowKeys,
+      Capability.edgeRepeat,
+      Capability.edgeArrowKeys | Capability.edgeRepeat,
+    ]) {
+      final mock = MockHidTransport(capabilities: 0x3f | extra);
+      final c = AppController(transport: mock);
+      try {
+        await c.scan();
+        c.update(
+          c.draft.copyWith(
+            edges: [
+              const EdgeConfig(
+                enabled: true,
+                action: EdgeAction.horizontalArrowKeys,
+              ),
+              const EdgeConfig(
+                enabled: true,
+                action: EdgeAction.volume,
+                repeatWhileHeld: true,
+              ),
+              ...c.draft.edges.skip(2),
+            ],
+          ),
+        );
+        await c.apply();
+        expect(c.error, isNull);
+        expect(
+          mock.config.edges[0].action,
+          extra & Capability.edgeArrowKeys != 0
+              ? EdgeAction.horizontalArrowKeys
+              : EdgeAction.off,
+        );
+        expect(mock.config.edges[1].action, EdgeAction.volume);
+        expect(
+          mock.config.edges[1].repeatWhileHeld,
+          extra & Capability.edgeRepeat != 0,
+        );
+        expect(c.current!.same(mock.config), isTrue);
+        expect(c.unsupportedChanges, extra != 192);
+      } finally {
+        c.dispose();
+      }
+    }
+  });
+  test(
+    'Unsupported arrow preview cannot start repeating the previous mapping',
+    () async {
+      final mock = MockHidTransport(capabilities: 0xbf);
+      mock.config = mock.config.copyWith(
+        edges: [
+          const EdgeConfig(enabled: true, action: EdgeAction.volume),
+          ...mock.config.edges.skip(1),
+        ],
+      );
+      final c = AppController(transport: mock);
+      addTearDown(c.dispose);
+      await c.scan();
+      c.update(
+        c.draft.copyWith(
+          edges: [
+            c.draft.edges[0].copyWith(
+              action: EdgeAction.verticalArrowKeys,
+              repeatWhileHeld: true,
+            ),
+            ...c.draft.edges.skip(1),
+          ],
+        ),
+      );
+      expect(c.canApply, isFalse);
+      c.update(c.draft.copyWith(intensity: 75));
+      await c.apply();
+      expect(mock.config.edges[0].action, EdgeAction.volume);
+      expect(mock.config.edges[0].repeatWhileHeld, isFalse);
+      expect(c.unsupportedChanges, isTrue);
+    },
+  );
+  test(
     'Old enumeration cannot replace device list after switching to demo',
     () async {
       final old = DelayedEnumeration();

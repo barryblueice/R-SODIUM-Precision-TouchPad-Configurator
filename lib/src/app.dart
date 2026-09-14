@@ -96,9 +96,7 @@ class _ConfiguratorState extends State<Configurator> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(24, 5, 16, 26),
-                  ),
+                  const Padding(padding: EdgeInsets.fromLTRB(24, 5, 16, 26)),
                   for (final item in [
                     (1, Icons.vibration_rounded),
                     (2, Icons.screen_rotation_alt_rounded),
@@ -753,6 +751,30 @@ class _ConfiguratorState extends State<Configurator> {
                   ? null
                   : (v) => change(e.copyWith(reversed: v)),
             ),
+            if (!c.supports(Capability.edges) ||
+                !c.supports(Capability.edgeArrowKeys))
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8),
+                child: Text(
+                  '方向键映射需要固件支持；可预览，暂不发送。',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text('手指不抬起继续动作'),
+              subtitle: Text(
+                !c.supports(Capability.edges) ||
+                        !c.supports(Capability.edgeRepeat)
+                    ? '需要固件支持；可预览，暂不发送。'
+                    : '随着手指移到触控板边缘外，继续执行动作',
+              ),
+              value: e.repeatWhileHeld,
+              onChanged: !_editable
+                  ? null
+                  : (v) => change(e.copyWith(repeatWhileHeld: v)),
+            ),
             _slider(
               '边缘宽度',
               e.width,
@@ -770,7 +792,7 @@ class _ConfiguratorState extends State<Configurator> {
               suffix: '%',
             ),
             const Text(
-              '宽度按垂直于该边的尺寸计算；步距按沿边尺寸计算。每跨过一个步距触发一次增减或滚动。',
+              '宽度按垂直于该边的尺寸计算；步距按沿边尺寸计算。达到触发步距后，是否继续执行由上方复选框决定。',
               style: TextStyle(fontSize: 12, height: 1.7),
             ),
             _readback(
@@ -778,6 +800,10 @@ class _ConfiguratorState extends State<Configurator> {
               c.current == null
                   ? ''
                   : '${actionNames[c.current!.edges[side.index].action.index]} · ${c.current!.edges[side.index].direction(side)}',
+            ),
+            _readback(
+              Capability.edgeRepeat,
+              '手指不抬起继续动作：${c.current?.edges[side.index].repeatWhileHeld == true ? '已开启' : '已关闭'}',
             ),
           ],
         ),

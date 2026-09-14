@@ -36,7 +36,7 @@ class AppController extends ChangeNotifier {
   bool get writableChanges =>
       current != null && !current!.same(draft, capabilities);
   bool get unsupportedChanges =>
-      current != null && !current!.same(draft, Capability.all & ~capabilities);
+      current != null && !current!.merge(draft, capabilities).same(draft);
   bool get canApply =>
       connected &&
       !busy &&

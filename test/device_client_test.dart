@@ -40,6 +40,50 @@ class RetryTransport extends MockHidTransport {
 
 void main() {
   test(
+    'Readback rejects extension values missing the matching capability',
+    () async {
+      for (final edge in [
+        const EdgeConfig(action: EdgeAction.verticalArrowKeys),
+        const EdgeConfig(repeatWhileHeld: true),
+      ]) {
+        final mock = MockHidTransport(capabilities: 0x3f);
+        mock.config = mock.config.copyWith(
+          edges: [edge, ...mock.config.edges.skip(1)],
+        );
+        final client = DeviceClient(mock);
+        await expectLater(client.connect('demo-v1'), throwsFormatException);
+        await client.close();
+      }
+    },
+  );
+  test('Extension bits require the base edge capability', () async {
+    final client = DeviceClient(MockHidTransport(capabilities: 0xdf));
+    await client.connect('demo-v1');
+    expect(client.capabilities, 0x1f);
+    await client.close();
+  });
+  test('Repeat-only write requires exact readback confirmation', () async {
+    final mock = MockHidTransport();
+    final client = DeviceClient(mock);
+    final current = await client.connect('demo-v1');
+    final draft = current.copyWith(
+      edges: [
+        current.edges[0].copyWith(repeatWhileHeld: true),
+        ...current.edges.skip(1),
+      ],
+    );
+    mock.ignoreWrites = true;
+    await expectLater(
+      client.apply(draft, current),
+      throwsA(isA<ProtocolException>()),
+    );
+    mock.ignoreWrites = false;
+    final result = await client.apply(draft, current);
+    expect(result.config!.repeatMask, 1);
+    expect(result.config!.same(draft), isTrue);
+    await client.close();
+  });
+  test(
     'RSTP handshake, capability discovery and verified persistence',
     () async {
       final mock = MockHidTransport();

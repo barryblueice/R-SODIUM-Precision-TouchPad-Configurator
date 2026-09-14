@@ -139,7 +139,7 @@ class MockHidTransport extends HidTransport {
       writes++;
       status = writeStatus;
       final incoming = TouchpadConfig.decode(p.payload);
-      if (!config.same(incoming, Capability.all & ~capabilities)) {
+      if (!config.merge(incoming, capabilities).same(incoming)) {
         status = Status.unsupported;
       }
       if ((status == Status.ok || status == Status.reconnect) &&
