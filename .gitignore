@@ -17,15 +17,11 @@
 # Windows Flutter 临时文件
 /windows/flutter/ephemeral/
 
-# IDE 本机状态；VS Code 项目配置可以提交
+# IDE 本机状态与配置，不纳入版本控制
 .idea/
 *.iml
 .vs/
-.vscode/*
-!.vscode/settings.json
-!.vscode/launch.json
-!.vscode/tasks.json
-!.vscode/extensions.json
+.vscode/
 
 # Visual Studio 用户配置
 *.suo
