@@ -26,6 +26,8 @@ class AppController extends ChangeNotifier {
   String message = '未连接触摸板';
   String? error;
   String? discoveryError;
+  String? dfuMessage;
+  final Set<String> _dfuWaitingIds = {};
   Timer? _timer;
   bool _disposed = false, _scanning = false;
   int _epoch = 0;
@@ -34,6 +36,26 @@ class AppController extends ChangeNotifier {
   DateTime? _nextAutoAttempt;
 
   bool get demo => transport.isDemo;
+  HidDevice? get dfuTarget {
+    for (final device in devices) {
+      if (device.id == selected?.id && device.supportsDfu) return device;
+    }
+    return null;
+  }
+
+  bool usbConnected(HidDevice? device) =>
+      device != null &&
+      discoveryError == null &&
+      !_dfuWaitingIds.contains(device.id) &&
+      devices.any((d) => d.id == device.id);
+  bool waitingForDfu(HidDevice device) => _dfuWaitingIds.contains(device.id);
+  bool canEnterDfuFor(HidDevice? device) =>
+      !_disposed &&
+      !busy &&
+      usbConnected(device) &&
+      device!.supportsDfu &&
+      devices.any((d) => d.id == device.id && d.dfuPath == device.dfuPath);
+  bool get canEnterDfu => canEnterDfuFor(dfuTarget);
   int get capabilities => connected ? client.capabilities : 0;
   bool get hapticSettingsAvailable => !isWindows11;
   int get editableCapabilities =>
@@ -72,6 +94,7 @@ class AppController extends ChangeNotifier {
       final previousIds = devices.map((d) => d.id).toSet();
       devices = [...discovered]..sort((a, b) => a.id.compareTo(b.id));
       discoveryError = null;
+      _dfuWaitingIds.removeWhere((id) => !devices.any((d) => d.id == id));
       if (selected != null && !devices.any((d) => d.id == selected!.id)) {
         if (connected) {
           connected = false;
@@ -80,10 +103,16 @@ class AppController extends ChangeNotifier {
           await client.close();
         }
       }
-      if (!connected && devices.isNotEmpty && !_disposed) {
-        final target = devices.firstWhere(
+      final candidates = devices
+          .where((d) => !_dfuWaitingIds.contains(d.id))
+          .toList();
+      if (!connected &&
+          candidates.isNotEmpty &&
+          !_disposed &&
+          !_dfuWaitingIds.contains(selected?.id)) {
+        final target = candidates.firstWhere(
           (d) => d.id == selected?.id,
-          orElse: () => devices.first,
+          orElse: () => candidates.first,
         );
         final newlyPresent = !previousIds.contains(target.id);
         if (newlyPresent ||
@@ -124,6 +153,8 @@ class AppController extends ChangeNotifier {
     emit();
     if (selected != null && edited) _drafts[selected!.id] = draft;
     final sameDevice = selected?.id == device.id;
+    _dfuWaitingIds.remove(device.id);
+    if (!sameDevice) dfuMessage = null;
     if (!sameDevice) {
       _pendingReconnect = null;
       draft = _drafts[device.id] ?? TouchpadConfig();
@@ -134,6 +165,11 @@ class AppController extends ChangeNotifier {
     current = null;
     try {
       await client.close();
+      if (device.productId != 0x072C) {
+        message = '已选择设备，可在设备信息中进入 DFU 模式。';
+        _nextAutoAttempt = DateTime.now().add(const Duration(seconds: 10));
+        return;
+      }
       final read = await client.connect(device.id);
       current = read;
       connected = true;
@@ -232,6 +268,65 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  Future<void> enterDfu([HidDevice? device]) async {
+    final target = device ?? dfuTarget;
+    if (!canEnterDfuFor(target)) return;
+    final isSelected = target!.id == selected?.id;
+    final epoch = ++_epoch;
+    busy = true;
+    error = null;
+    dfuMessage = '正在发送 DFU 命令…';
+    if (isSelected && edited) _drafts[target.id] = draft;
+    emit();
+    try {
+      // Rescan before sending; never substitute a newly selected device.
+      final List<HidDevice> present;
+      try {
+        present = await transport.enumerate();
+      } catch (e) {
+        discoveryError = e.toString();
+        rethrow;
+      }
+      if (_disposed || epoch != _epoch) return;
+      devices = [...present]..sort((a, b) => a.id.compareTo(b.id));
+      if (!present.any(
+        (d) =>
+            d.id == target.id && d.dfuPath == target.dfuPath && d.supportsDfu,
+      )) {
+        throw const HidException('disconnected', '目标设备已断开，未发送 DFU 命令');
+      }
+      await transport.enterDfu(target);
+      if (_disposed || epoch != _epoch) return;
+      _dfuWaitingIds.add(target.id);
+      if (isSelected) {
+        _pendingReconnect = null;
+        connected = false;
+        current = null;
+      }
+      dfuMessage = demo
+          ? '已模拟发送 DFU 命令，演示设备已断开。'
+          : 'DFU 命令已发送，请在设备进入升级模式后使用刷写工具继续。';
+      message = dfuMessage!;
+      if (isSelected) await client.close();
+    } catch (e) {
+      if (_disposed || epoch != _epoch) return;
+      error = e.toString();
+      dfuMessage = 'DFU 命令未确认发送成功，请检查设备状态后重试。';
+      message = dfuMessage!;
+      if (e is HidException && e.code == 'disconnected') {
+        devices.removeWhere((d) => d.id == target.id);
+        if (isSelected) {
+          connected = false;
+          current = null;
+          await client.close();
+        }
+      }
+    } finally {
+      busy = false;
+      emit();
+    }
+  }
+
   Future<void> setDemo(bool enabled, {bool legacy = false}) async {
     if (busy || _disposed) return;
     _epoch++;
@@ -250,6 +345,8 @@ class AppController extends ChangeNotifier {
     draft = TouchpadConfig();
     devices = [];
     _pendingReconnect = null;
+    _dfuWaitingIds.clear();
+    dfuMessage = null;
     _nextAutoAttempt = null;
     error = discoveryError = null;
     message = enabled ? '演示模式：所有读写仅在内存中执行。' : '请连接 USB 触摸板。';

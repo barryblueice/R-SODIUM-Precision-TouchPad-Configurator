@@ -1,4 +1,5 @@
 #include "hid_bridge.h"
+#include "dfu_protocol.h"
 
 #include <hidsdi.h>
 #include <hidpi.h>
@@ -8,6 +9,7 @@
 #include <cfgmgr32.h>
 #include <flutter/standard_method_codec.h>
 #include <algorithm>
+#include <cwctype>
 #include <iomanip>
 #include <map>
 #include <sstream>
@@ -53,6 +55,11 @@ struct Collection {
   std::string container, name, serial;
   HIDP_CAPS caps{};
   bool press = false, intensity = false;
+  USHORT vendor = 0, product = 0;
+  int interface_number = -1;
+  bool SupportsDfu() const {
+    return dfu::IsInterface(vendor, product, interface_number, caps.OutputReportByteLength);
+  }
 };
 std::string Container(HDEVINFO set, SP_DEVINFO_DATA& device, const std::wstring& path) {
   GUID id{};
@@ -70,7 +77,7 @@ std::string Container(HDEVINFO set, SP_DEVINFO_DATA& device, const std::wstring&
     wchar_t text[MAX_DEVICE_ID_LEN]{};
     if (CM_Get_Device_IDW(node, text, MAX_DEVICE_ID_LEN, 0) == CR_SUCCESS) {
       std::wstring instance(text);
-      if (instance.find(L"USB\\VID_0D00&PID_072C") == 0 &&
+      if (instance.find(L"USB\\VID_0D00&PID_072") == 0 &&
           instance.find(L"&MI_") == std::wstring::npos) return Utf8(instance);
     }
     DEVINST parent;
@@ -109,9 +116,15 @@ std::vector<Collection> Enumerate() {
     HIDD_ATTRIBUTES attributes{};
     attributes.Size = sizeof(attributes);
     if (!HidD_GetAttributes(handle.value, &attributes) ||
-        attributes.VendorID != 0x0D00 || attributes.ProductID != 0x072C) continue;
+        !dfu::IsTarget(attributes.VendorID, attributes.ProductID)) continue;
     Collection c;
     c.path = detail->DevicePath;
+    c.vendor = attributes.VendorID;
+    c.product = attributes.ProductID;
+    std::wstring normalized_path = c.path;
+    std::transform(normalized_path.begin(), normalized_path.end(), normalized_path.begin(),
+        [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+    if (normalized_path.find(L"&mi_00") != std::wstring::npos) c.interface_number = 0;
     c.container = Container(set.value, dev, c.path);
     wchar_t product[256]{}, serial[256]{};
     HidD_GetProductString(handle.value, product, sizeof(product));
@@ -226,20 +239,70 @@ HidBridge::Value HidBridge::Run(const std::string& method, const Map& args) {
     List result;
     for (const auto& pair : groups) {
       const auto& first = pair.second.front();
+      std::string dfu_path;
+      int dfu_count = 0;
       std::ostringstream details;
       for (const auto& c : pair.second) {
+        if (c.SupportsDfu()) { dfu_path = Utf8(c.path); dfu_count++; }
         details << "Usage " << std::hex << std::setw(4) << std::setfill('0') << c.caps.UsagePage
                 << ":" << std::setw(4) << c.caps.Usage << std::dec
                 << " | IN " << c.caps.InputReportByteLength << " OUT " << c.caps.OutputReportByteLength
                 << " FEATURE " << c.caps.FeatureReportByteLength << "\n";
       }
+      // Never guess between multiple writable interface-0 collections.
+      if (dfu_count != 1) dfu_path.clear();
       result.emplace_back(Map{{Value("id"), Value(pair.first)},
         {Value("name"), Value(first.name.empty() ? "R-SODIUM TouchPad" : first.name)},
         {Value("serial"), Value(first.serial)},
         {Value("collections"), Value(static_cast<int32_t>(pair.second.size()))},
+        {Value("vendorId"), Value(static_cast<int32_t>(first.vendor))},
+        {Value("productId"), Value(static_cast<int32_t>(first.product))},
+        {Value("dfuPath"), Value(dfu_path)},
         {Value("details"), Value(details.str())}});
     }
     return Value(result);
+  }
+  if (method == "enterDfu") {
+    const auto* id = std::get_if<std::string>(&Arg(args, "id"));
+    const auto* path = std::get_if<std::string>(&Arg(args, "path"));
+    if (!id || !path || path->empty()) throw NativeError("argument", "Expected DFU target id and path");
+    // Fresh enumeration binds this write to the requested physical device and
+    // exact collection, independently of whether RSTP configuration is supported.
+    std::vector<Collection> targets;
+    for (auto& c : Enumerate()) {
+      if (c.container == *id && c.SupportsDfu()) targets.push_back(std::move(c));
+    }
+    if (targets.size() != 1 || Utf8(targets.front().path) != *path) {
+      throw NativeError("disconnected", "DFU target unavailable or ambiguous; command not sent");
+    }
+    ScopedHandle handle{CreateFileW(targets.front().path.c_str(), GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr)};
+    if (handle.value == INVALID_HANDLE_VALUE) Fail("Open DFU interface");
+    const auto report = dfu::Report();
+    ScopedHandle event{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    if (!event.value) Fail("Create DFU event");
+    OVERLAPPED overlapped{};
+    overlapped.hEvent = event.value;
+    if (!WriteFile(handle.value, report.data(), static_cast<DWORD>(report.size()), nullptr, &overlapped)) {
+      if (GetLastError() != ERROR_IO_PENDING) Fail("Write DFU command");
+      const DWORD wait = WaitForSingleObject(event.value, 1500);
+      if (wait != WAIT_OBJECT_0) {
+        const DWORD error = GetLastError();
+        CancelIoEx(handle.value, &overlapped);
+        DWORD cancelled = 0;
+        GetOverlappedResult(handle.value, &overlapped, &cancelled, TRUE);
+        if (wait == WAIT_TIMEOUT) throw NativeError("timeout", "DFU write timed out; check device before retrying");
+        Fail("Wait for DFU write", error);
+      }
+    }
+    DWORD written = 0;
+    if (!GetOverlappedResult(handle.value, &overlapped, &written, FALSE)) Fail("Complete DFU write");
+    if (written != report.size()) {
+      throw NativeError("short_write", "Incomplete DFU write: " + std::to_string(written) + "/65 bytes");
+    }
+    // This DFU handle is scoped to its target. The controller closes the
+    // configuration connection only when that same device enters DFU.
+    return Value();
   }
   if (method == "open") {
     const auto* id = std::get_if<std::string>(&Arg(args, "id"));
@@ -249,6 +312,9 @@ HidBridge::Value HidBridge::Run(const std::string& method, const Map& args) {
     for (const auto& c : Enumerate()) {
       if (c.container != *id) continue;
       found = true;
+      // Other product IDs are exposed for DFU only; do not assume their
+      // configuration reports share the 072C protocol.
+      if (c.product != 0x072C) continue;
       if (c.caps.UsagePage == 0xFF00 && c.caps.Usage == 1 &&
           c.caps.InputReportByteLength == 65 && c.caps.OutputReportByteLength == 65 &&
           generic_ == INVALID_HANDLE_VALUE) {

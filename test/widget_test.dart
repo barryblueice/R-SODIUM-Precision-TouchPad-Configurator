@@ -415,12 +415,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('左边缘设置'), findsOneWidget);
     for (final slider in tester.widgetList<Slider>(find.byType(Slider))) {
-      expect(slider.onChanged, isNotNull);
+      expect(slider.onChanged, isNull);
     }
     await tester.ensureVisible(find.text('启用此边缘'));
     await tester.tap(find.text('启用此边缘'));
     await tester.pumpAndSettle();
     expect(c.draft.edges[2].enabled, isTrue);
+    for (final slider in tester.widgetList<Slider>(find.byType(Slider))) {
+      expect(slider.onChanged, isNotNull);
+    }
     await tester.ensureVisible(find.text('反转滑动方向'));
     await tester.tap(find.text('反转滑动方向'));
     await tester.pumpAndSettle();
@@ -464,6 +467,9 @@ void main() {
         await tester.tap(
           find.widgetWithText(ChoiceChip, edgeNames[side.index]),
         );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('启用此边缘'));
+        await tester.tap(find.text('启用此边缘'));
         await tester.pumpAndSettle();
         final dropdown = find.byType(DropdownButtonFormField<EdgeAction>);
         await tester.ensureVisible(dropdown);
@@ -510,6 +516,9 @@ void main() {
     await tester.tap(find.text('边缘手势').first);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, '左边缘'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('启用此边缘'));
+    await tester.tap(find.text('启用此边缘'));
     await tester.pumpAndSettle();
     final heldAction = find.widgetWithText(SwitchListTile, '手指不抬起继续动作');
     await tester.ensureVisible(heldAction);

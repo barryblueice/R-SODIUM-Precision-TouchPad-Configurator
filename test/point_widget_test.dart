@@ -42,7 +42,7 @@ void main() {
       final c = await show(tester);
       expect(find.byType(PointDiagram), findsOneWidget);
       expect(find.byType(TouchpadDiagram), findsNothing);
-      expect(find.text('请先选择单点区域'), findsOneWidget);
+      expect(find.text('请先选择焦点区域'), findsOneWidget);
       expect(
         tester
             .widget<DropdownButtonFormField<PointAction>>(
@@ -63,6 +63,7 @@ void main() {
           tester,
           find.widgetWithText(ChoiceChip, pointNames[position.index]),
         );
+        await tapVisible(tester, find.text('启用此焦点'));
         await tapVisible(
           tester,
           find.byType(DropdownButtonFormField<PointAction>),
@@ -166,11 +167,10 @@ void main() {
         isNull,
       );
       await tapVisible(tester, find.widgetWithText(ChoiceChip, '左上点'));
+      await tapVisible(tester, find.text('启用此焦点'));
       await tapVisible(tester, find.text('允许点转为滑动时继续沿用边缘解析'));
       expect(c.draft.pointToEdgeMask, 1);
       expect(c.canApply, isFalse);
-      await tapVisible(tester, find.widgetWithText(ChoiceChip, '左上点'));
-      await tapVisible(tester, find.text('启用此单点'));
       expect(c.draft.points[0].action, PointAction.volumeUp);
       expect(c.unsupportedChanges, isTrue);
       expect(c.canApply, isFalse);
@@ -180,6 +180,92 @@ void main() {
       expect(c.current!.points[0].enabled, isFalse);
     },
   );
+
+  for (final isPoint in [false, true]) {
+    testWidgets(
+      '${isPoint ? 'Point' : 'Edge'} enable switch gates settings and retains parameters',
+      (tester) async {
+        final c = await show(tester);
+        if (!isPoint) {
+          await tapVisible(tester, find.widgetWithText(ListTile, '边缘手势'));
+        }
+        final enableLabel = isPoint ? '启用此焦点' : '启用此边缘';
+        final regionLabel = isPoint ? '左上点' : '上边缘';
+        void expectSettingsEnabled(bool enabled) {
+          final toggles = tester.widgetList<SwitchListTile>(
+            find.byType(SwitchListTile),
+          );
+          expect(toggles.first.onChanged, isNotNull);
+          for (final toggle in toggles.skip(1)) {
+            expect(toggle.onChanged, enabled ? isNotNull : isNull);
+          }
+          for (final slider in tester.widgetList<Slider>(find.byType(Slider))) {
+            expect(slider.onChanged, enabled ? isNotNull : isNull);
+          }
+          final callback = isPoint
+              ? tester
+                    .widget<DropdownButtonFormField<PointAction>>(
+                      find.byType(DropdownButtonFormField<PointAction>),
+                    )
+                    .onChanged
+              : tester
+                    .widget<DropdownButtonFormField<EdgeAction>>(
+                      find.byType(DropdownButtonFormField<EdgeAction>),
+                    )
+                    .onChanged;
+          expect(callback, enabled ? isNotNull : isNull);
+        }
+
+        await tapVisible(tester, find.widgetWithText(ChoiceChip, regionLabel));
+        expectSettingsEnabled(false);
+        await tapVisible(tester, find.text(enableLabel));
+        expectSettingsEnabled(true);
+        if (isPoint) {
+          final points = [...c.draft.points];
+          points[0] = const PointConfig(
+            enabled: true,
+            action: PointAction.arrowLeft,
+            radius: 30,
+            step: 7,
+            repeatWhileHeld: true,
+            allowPointToEdge: true,
+          );
+          c.update(c.draft.copyWith(points: points));
+        } else {
+          final edges = [...c.draft.edges];
+          edges[0] = const EdgeConfig(
+            enabled: true,
+            action: EdgeAction.horizontalArrowKeys,
+            width: 9,
+            step: 7,
+            reversed: true,
+            repeatWhileHeld: true,
+          );
+          c.update(c.draft.copyWith(edges: edges));
+        }
+        await tester.pumpAndSettle();
+        final configured = c.draft;
+        await tapVisible(tester, find.text(enableLabel));
+        expectSettingsEnabled(false);
+        expect(
+          tester.widget<Slider>(find.byType(Slider).first).value,
+          isPoint ? 30 : 9,
+        );
+        expect(tester.widget<Slider>(find.byType(Slider).last).value, 7);
+        await tapVisible(
+          tester,
+          find.widgetWithText(ChoiceChip, isPoint ? '右上点' : '下边缘'),
+        );
+        expectSettingsEnabled(false);
+        await tapVisible(tester, find.widgetWithText(ChoiceChip, regionLabel));
+        expectSettingsEnabled(false);
+        await tapVisible(tester, find.text(enableLabel));
+        expectSettingsEnabled(true);
+        expect(c.draft.same(configured), isTrue);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('Disconnected point and conversion editors are disabled', (
     tester,
@@ -244,6 +330,7 @@ void main() {
             position,
           );
         }
+        await tapVisible(tester, find.text('启用此焦点'));
         await tapVisible(tester, find.text('允许点转为滑动时继续沿用边缘解析'));
         expect(c.draft.pointToEdgeMask, 8);
         final pointScroll = tester.state<ScrollableState>(

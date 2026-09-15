@@ -57,8 +57,10 @@ class _ConfiguratorState extends State<Configurator> {
   int page = 1;
   EdgeSide? side;
   PointPosition? point;
+  final Map<bool, String> _dfuSelections = {};
   static const titles = ['设备信息', '触觉与按压', '方向与休眠', '边缘手势', '单点手势'];
   bool get _editable => c.connected && !c.busy;
+  bool get _selectedPresent => c.devices.any((d) => d.id == c.selected?.id);
   bool get _hapticEditable => _editable && c.hapticSettingsAvailable;
   @override
   void initState() {
@@ -241,7 +243,7 @@ class _ConfiguratorState extends State<Configurator> {
     final suffix = serial.length > 6
         ? serial.substring(serial.length - 6)
         : serial;
-    return '触摸板 $index${suffix.isEmpty ? '' : ' · $suffix'}';
+    return '${device.kindLabel} $index${suffix.isEmpty ? '' : ' · $suffix'}';
   }
 
   Widget _deviceSelector() {
@@ -256,7 +258,9 @@ class _ConfiguratorState extends State<Configurator> {
           Row(
             children: [
               Icon(
-                c.connected ? Icons.usb_rounded : Icons.usb_off_rounded,
+                c.usbConnected(c.selected)
+                    ? Icons.usb_rounded
+                    : Icons.usb_off_rounded,
                 size: 16,
               ),
               const SizedBox(width: 8),
@@ -264,7 +268,7 @@ class _ConfiguratorState extends State<Configurator> {
                 child: Text(
                   c.busy && !c.connected
                       ? '正在连接…'
-                      : c.connected
+                      : c.usbConnected(c.selected)
                       ? '已连接'
                       : '未连接',
                   style: const TextStyle(fontSize: 12),
@@ -386,10 +390,10 @@ class _ConfiguratorState extends State<Configurator> {
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _detail('名称', c.connected ? c.selected!.name : '未连接'),
-          _detail('连接', 'USB'),
-          _detail('设备 ID', '0D00:072C'),
-          _detail('序列号', c.connected ? c.selected!.serial : '—'),
+          _detail('名称', _selectedPresent ? c.selected!.name : '未连接'),
+          _detail('连接', _selectedPresent ? 'USB' : '未连接'),
+          _detail('设备 ID', c.selected?.usbId ?? '—'),
+          _detail('序列号', _selectedPresent ? c.selected!.serial : '—'),
           _detail(
             '固件版本',
             c.connected && c.client.modern ? c.client.firmware : '未提供',
@@ -409,6 +413,27 @@ class _ConfiguratorState extends State<Configurator> {
       ),
     ),
     const SizedBox(height: 16),
+    _card(
+      'DFU 固件升级',
+      '让触摸板或接收器进入 DFU 升级模式',
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (c.edited) ...[
+            const Text('尚未保存的设置会保留在配置器中。'),
+            const SizedBox(height: 12),
+          ],
+          _dfuRow(false),
+          const Divider(height: 24),
+          _dfuRow(true),
+          if (c.dfuMessage != null) ...[
+            const SizedBox(height: 12),
+            Semantics(liveRegion: true, child: Text(c.dfuMessage!)),
+          ],
+        ],
+      ),
+    ),
+    const SizedBox(height: 16),
     ExpansionTile(
       title: const Text('调试', style: TextStyle(fontSize: 13)),
       children: [
@@ -422,6 +447,90 @@ class _ConfiguratorState extends State<Configurator> {
       ],
     ),
   ];
+  Widget _dfuRow(bool receiver) {
+    final devices = c.devices.where((d) => d.isReceiver == receiver).toList();
+    final selection = _dfuSelections[receiver];
+    HidDevice? target;
+    for (final device in devices) {
+      if (device.id == (selection ?? c.selected?.id)) target = device;
+    }
+    if (selection == null && target == null && devices.length == 1) {
+      target = devices.single;
+    }
+    final device = target;
+    final label = receiver ? '接收器' : '触摸板';
+    final online = c.usbConnected(device);
+    final status = c.discoveryError != null
+        ? '连接状态未知'
+        : device != null && c.waitingForDfu(device)
+        ? '已发送，等待断开'
+        : online
+        ? '已连接'
+        : devices.isNotEmpty && device == null
+        ? '请选择设备'
+        : '未连接';
+    return Row(
+      key: ValueKey(receiver ? 'dfu-receiver' : 'dfu-touchpad'),
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$label · $status',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              if (devices.length > 1 ||
+                  (selection != null &&
+                      device == null &&
+                      devices.isNotEmpty)) ...[
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  key: ValueKey('dfu-$receiver-${device?.id}'),
+                  initialValue: device?.id,
+                  isExpanded: true,
+                  decoration: InputDecoration(labelText: '选择$label'),
+                  items: [
+                    for (final d in devices)
+                      DropdownMenuItem(
+                        value: d.id,
+                        child: Text(
+                          _deviceLabel(d),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: c.busy
+                      ? null
+                      : (id) {
+                          if (id != null) {
+                            setState(() => _dfuSelections[receiver] = id);
+                          }
+                        },
+                ),
+              ] else if (device != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  '${device.name} · ${device.usbId}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ] else if (receiver) ...[
+                const SizedBox(height: 4),
+                const Text('0D00:072D', style: TextStyle(fontSize: 12)),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        FilledButton.icon(
+          onPressed: c.canEnterDfuFor(device) ? () => c.enterDfu(device) : null,
+          icon: const Icon(Icons.system_update_alt_rounded),
+          label: Text(c.demo ? '模拟进入 DFU 模式' : '进入 DFU 模式'),
+        ),
+      ],
+    );
+  }
+
   Widget _detail(String name, String value) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 8),
     child: Row(
@@ -644,6 +753,7 @@ class _ConfiguratorState extends State<Configurator> {
     final e = selectedSide == null
         ? const EdgeConfig()
         : c.draft.edges[selectedSide.index];
+    final edgeSettingsEditable = edgeEditable && e.enabled;
     void change(EdgeConfig value) {
       if (!edgeEditable) return;
       final edges = [...c.draft.edges];
@@ -726,7 +836,7 @@ class _ConfiguratorState extends State<Configurator> {
                     child: Text(actionNames[action.index]),
                   ),
               ],
-              onChanged: !edgeEditable
+              onChanged: !edgeSettingsEditable
                   ? null
                   : (v) {
                       if (v != null) {
@@ -744,7 +854,7 @@ class _ConfiguratorState extends State<Configurator> {
               selectedSide?.maxWidthPercent ?? EdgeSide.left.maxWidthPercent,
               (v) => change(e.copyWith(width: v)),
               suffix: '%',
-              enabled: edgeEditable,
+              enabled: edgeSettingsEditable,
             ),
             _slider(
               '触发步距',
@@ -753,7 +863,7 @@ class _ConfiguratorState extends State<Configurator> {
               10,
               (v) => change(e.copyWith(step: v)),
               suffix: '%',
-              enabled: edgeEditable,
+              enabled: edgeSettingsEditable,
             ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
@@ -762,7 +872,7 @@ class _ConfiguratorState extends State<Configurator> {
                   ? null
                   : Text(e.direction(selectedSide)),
               value: e.reversed,
-              onChanged: !edgeEditable
+              onChanged: !edgeSettingsEditable
                   ? null
                   : (v) => change(e.copyWith(reversed: v)),
             ),
@@ -771,14 +881,14 @@ class _ConfiguratorState extends State<Configurator> {
               title: const Text('手指不抬起继续动作'),
               subtitle: Text('随着手指移到触控板边缘外，继续执行动作'),
               value: e.repeatWhileHeld,
-              onChanged: !edgeEditable
+              onChanged: !edgeSettingsEditable
                   ? null
                   : (v) => change(e.copyWith(repeatWhileHeld: v)),
             ),
           ],
         ),
       ),
-      const SizedBox(height: 20)
+      const SizedBox(height: 20),
     ];
   }
 
@@ -788,6 +898,7 @@ class _ConfiguratorState extends State<Configurator> {
     final p = selected == null
         ? const PointConfig()
         : c.draft.points[selected.index];
+    final pointSettingsEditable = editable && p.enabled;
     void change(PointConfig value) {
       if (!editable) return;
       final points = [...c.draft.points];
@@ -797,7 +908,7 @@ class _ConfiguratorState extends State<Configurator> {
 
     return [
       _card(
-        '单点区域',
+        '焦点区域',
         '圆心固定在四角，半径按触控板短边百分比计算。单点与边缘分别设置。',
         Column(
           children: [
@@ -839,13 +950,13 @@ class _ConfiguratorState extends State<Configurator> {
       const SizedBox(height: 20),
       _card(
         selected == null ? '单点设置' : '${pointNames[selected.index]}设置',
-        selected == null ? '请先选择单点区域' : '实际动作：${p.description}',
+        selected == null ? '请先选择焦点区域' : '实际动作：${p.description}',
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
-              title: const Text('启用此单点'),
+              title: const Text('启用此焦点'),
               value: p.enabled,
               onChanged: !editable
                   ? null
@@ -870,7 +981,7 @@ class _ConfiguratorState extends State<Configurator> {
                     child: Text(pointActionNames[action.index]),
                   ),
               ],
-              onChanged: !editable
+              onChanged: !pointSettingsEditable
                   ? null
                   : (value) {
                       if (value != null) {
@@ -891,7 +1002,7 @@ class _ConfiguratorState extends State<Configurator> {
               30,
               (value) => change(p.copyWith(radius: value)),
               suffix: '%',
-              enabled: editable,
+              enabled: pointSettingsEditable,
             ),
             _slider(
               '触发步距',
@@ -900,14 +1011,14 @@ class _ConfiguratorState extends State<Configurator> {
               10,
               (value) => change(p.copyWith(step: value)),
               suffix: '%',
-              enabled: editable,
+              enabled: pointSettingsEditable,
             ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: const Text('手指不抬起继续动作'),
               subtitle: const Text('重复当前单点动作；转为滑动后进入边缘手势。'),
               value: p.repeatWhileHeld,
-              onChanged: !editable
+              onChanged: !pointSettingsEditable
                   ? null
                   : (value) => change(p.copyWith(repeatWhileHeld: value)),
             ),
@@ -916,7 +1027,7 @@ class _ConfiguratorState extends State<Configurator> {
               title: const Text('允许点转为滑动时继续沿用边缘解析'),
               subtitle: Text('仅作用于从此点开始的点击。关闭时移动仍按点击处理；开启后保留点击，达到此点步距再进入边缘解析。'),
               value: p.allowPointToEdge,
-              onChanged: !editable
+              onChanged: !pointSettingsEditable
                   ? null
                   : (value) => change(p.copyWith(allowPointToEdge: value)),
             ),
@@ -924,7 +1035,7 @@ class _ConfiguratorState extends State<Configurator> {
         ),
         capability: Capability.points,
       ),
-      const SizedBox(height: 20)
+      const SizedBox(height: 20),
     ];
   }
 

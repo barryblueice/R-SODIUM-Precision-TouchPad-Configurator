@@ -14,15 +14,33 @@ class HidDevice {
     this.serial = '',
     this.collections = 0,
     this.details = '',
+    this.vendorId = 0x0D00,
+    this.productId = 0x072C,
+    this.dfuPath = '',
   });
   final String id, name, serial, details;
   final int collections;
+  final int vendorId, productId;
+  final String dfuPath;
+  bool get isReceiver => vendorId == 0x0D00 && productId == 0x072D;
+  String get kindLabel => isReceiver ? '接收器' : '触摸板';
+  bool get supportsDfu =>
+      vendorId == 0x0D00 &&
+      productId >= 0x072A &&
+      productId <= 0x072D &&
+      dfuPath.isNotEmpty;
+  String get usbId =>
+      '${vendorId.toRadixString(16).padLeft(4, '0')}:${productId.toRadixString(16).padLeft(4, '0')}'
+          .toUpperCase();
   factory HidDevice.fromMap(Map<Object?, Object?> m) => HidDevice(
     id: m['id'] as String,
     name: m['name'] as String,
     serial: m['serial'] as String? ?? '',
     collections: m['collections'] as int? ?? 0,
     details: m['details'] as String? ?? '',
+    vendorId: m['vendorId'] as int? ?? 0,
+    productId: m['productId'] as int? ?? 0,
+    dfuPath: m['dfuPath'] as String? ?? '',
   );
 }
 
@@ -43,6 +61,9 @@ abstract class HidTransport {
   Future<Uint8List> read(int timeoutMs);
   Future<int> getFeature(int reportId);
   Future<void> setFeature(int reportId, int value);
+  Future<void> enterDfu(HidDevice device) async {
+    throw const HidException('unsupported', '当前连接不支持进入 DFU 模式');
+  }
 }
 
 class WindowsHidTransport extends HidTransport {
@@ -80,6 +101,13 @@ class WindowsHidTransport extends HidTransport {
   @override
   Future<void> setFeature(int reportId, int value) =>
       _call<void>('setFeature', {'reportId': reportId, 'value': value});
+  @override
+  Future<void> enterDfu(HidDevice device) async {
+    if (!device.supportsDfu) {
+      throw const HidException('unsupported', '设备没有可用的 DFU 接口');
+    }
+    await _call<void>('enterDfu', {'id': device.id, 'path': device.dfuPath});
+  }
 }
 
 // In-memory firmware emulator; no OS input or physical HID writes.
@@ -96,6 +124,7 @@ class MockHidTransport extends HidTransport {
   bool dropWriteReply = false, ignoreWrites = false;
   int writeStatus = Status.ok;
   int writes = 0;
+  int dfuRequests = 0;
   TouchpadConfig config = TouchpadConfig();
   final Queue<Uint8List> replies = Queue();
   @override
@@ -109,6 +138,7 @@ class MockHidTransport extends HidTransport {
             serial: 'DEMO-0001',
             collections: 3,
             details: '内存模拟设备，不连接硬件',
+            dfuPath: 'demo-dfu',
           ),
         ]
       : [];
@@ -123,6 +153,19 @@ class MockHidTransport extends HidTransport {
   Future<void> close() async {
     opened = false;
     replies.clear();
+  }
+
+  @override
+  Future<void> enterDfu(HidDevice device) async {
+    final targets = await enumerate();
+    if (!targets.any(
+      (d) => d.id == device.id && d.dfuPath == device.dfuPath && d.supportsDfu,
+    )) {
+      throw const HidException('disconnected', '目标演示设备已断开');
+    }
+    dfuRequests++;
+    present = false;
+    await close();
   }
 
   void check() {

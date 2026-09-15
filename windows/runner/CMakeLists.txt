@@ -41,3 +41,7 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# Explicit target for the DFU wire contract; never sends USB data.
+add_executable(dfu_protocol_test EXCLUDE_FROM_ALL "../../test/native/dfu_protocol_test.cpp")
+apply_standard_settings(dfu_protocol_test)
