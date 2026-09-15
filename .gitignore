@@ -11,8 +11,9 @@
 /dist/
 /coverage/
 
-# 本地文档，不纳入版本控制
-/docs/
+# 仅协议约定纳入版本控制，其余文档保留为本地文件
+/docs/*
+!/docs/hid-protocol.md
 
 # Windows Flutter 临时文件
 /windows/flutter/ephemeral/

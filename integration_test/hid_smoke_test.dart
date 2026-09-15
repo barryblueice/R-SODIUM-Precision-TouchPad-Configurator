@@ -44,7 +44,22 @@ void main() {
             'known': client.known,
             'intensity': config.intensity,
             'pressLevel': config.pressLevel,
-            'configurationBytes': config.encode().toList(),
+            'configVersion': client.configVersion,
+            'configurationBytes': config
+                .encode(version: client.configVersion)
+                .toList(),
+            'points': [
+              for (var i = 0; i < config.points.length; i++)
+                {
+                  'point': i,
+                  'enabled': config.points[i].enabled,
+                  'action': config.points[i].action.name,
+                  'radius': config.points[i].radius,
+                  'step': config.points[i].step,
+                  'repeatWhileHeld': config.points[i].repeatWhileHeld,
+                  'allowPointToEdge': config.points[i].allowPointToEdge,
+                },
+            ],
             'edges': [
               for (var i = 0; i < config.edges.length; i++)
                 {

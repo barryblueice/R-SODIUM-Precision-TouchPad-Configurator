@@ -9,7 +9,19 @@ abstract final class Capability {
   static const edges = 32;
   static const edgeArrowKeys = 64;
   static const edgeRepeat = 128;
-  static const all = 255;
+  static const points = 256;
+  static const pointToEdge = 512;
+  static const v1 = 255;
+  static const all = 1023;
+
+  static int negotiated(int mask, int configVersion) {
+    mask &= configVersion == 1 ? v1 : all;
+    if (mask & edges == 0) {
+      mask &= ~(edgeArrowKeys | edgeRepeat | pointToEdge);
+    }
+    if (mask & points == 0) mask &= ~pointToEdge;
+    return mask;
+  }
 }
 
 enum EdgeSide {
@@ -37,6 +49,127 @@ enum EdgeAction {
 const edgeNames = ['上边缘', '下边缘', '左边缘', '右边缘'];
 const actionNames = ['关闭', '亮度', '音量', '垂直滚轮', '水平滚轮', '上下方向键', '左右方向键'];
 const rotationNames = ['横向', '纵向', '横向翻转', '纵向翻转'];
+
+enum PointPosition {
+  topLeft,
+  topRight,
+  bottomLeft,
+  bottomRight;
+
+  double centerX(double width) => index.isOdd ? width : 0;
+  double centerY(double height) => index >= 2 ? height : 0;
+}
+
+enum PointAction {
+  off,
+  brightnessUp,
+  brightnessDown,
+  volumeUp,
+  volumeDown,
+  wheelUp,
+  wheelDown,
+  wheelRight,
+  wheelLeft,
+  arrowUp,
+  arrowDown,
+  arrowRight,
+  arrowLeft;
+
+  PointAction get opposite =>
+      this == off ? off : values[index.isOdd ? index + 1 : index - 1];
+}
+
+const pointNames = ['左上点', '右上点', '左下点', '右下点'];
+const pointActionNames = [
+  '关闭',
+  '增加亮度',
+  '降低亮度',
+  '增加音量',
+  '降低音量',
+  '滚轮向上',
+  '滚轮向下',
+  '滚轮向右',
+  '滚轮向左',
+  '方向键 ↑',
+  '方向键 ↓',
+  '方向键 →',
+  '方向键 ←',
+];
+
+class PointConfig {
+  const PointConfig({
+    this.enabled = false,
+    this.action = PointAction.off,
+    this.radius = 5,
+    this.step = 2,
+    this.repeatWhileHeld = false,
+    this.allowPointToEdge = false,
+  });
+
+  final bool enabled, repeatWhileHeld, allowPointToEdge;
+  final PointAction action;
+  final int radius, step;
+
+  String get description => !enabled || action == PointAction.off
+      ? '未启用'
+      : pointActionNames[action.index];
+
+  PointConfig copyWith({
+    bool? enabled,
+    PointAction? action,
+    int? radius,
+    int? step,
+    bool? repeatWhileHeld,
+    bool? allowPointToEdge,
+  }) => PointConfig(
+    enabled: enabled ?? this.enabled,
+    action: action ?? this.action,
+    radius: radius ?? this.radius,
+    step: step ?? this.step,
+    repeatWhileHeld: repeatWhileHeld ?? this.repeatWhileHeld,
+    allowPointToEdge: allowPointToEdge ?? this.allowPointToEdge,
+  );
+
+  List<int> get bytes => [
+    enabled ? 1 : 0,
+    action.index,
+    0, // Reserved; old reversal flags are normalized to a concrete action on read.
+    radius,
+    step,
+  ];
+  bool get isDefault =>
+      !enabled &&
+      action == PointAction.off &&
+      radius == 5 &&
+      step == 2 &&
+      !repeatWhileHeld &&
+      !allowPointToEdge;
+
+  // Preview geometry uses the already-rotated surface, with equal X/Y units.
+  double radiusFor(double width, double height) =>
+      (width < height ? width : height) * radius / 100;
+
+  bool contains(
+    PointPosition position,
+    double x,
+    double y,
+    double width,
+    double height,
+  ) {
+    if (width <= 0 ||
+        height <= 0 ||
+        x < 0 ||
+        y < 0 ||
+        x > width ||
+        y > height) {
+      return false;
+    }
+    final dx = x - position.centerX(width);
+    final dy = y - position.centerY(height);
+    final r = radiusFor(width, height);
+    return dx * dx + dy * dy <= r * r;
+  }
+}
 
 class EdgeConfig {
   const EdgeConfig({
@@ -108,11 +241,17 @@ class TouchpadConfig {
     this.sleepEnabled = true,
     this.sleepMs = 180000,
     List<EdgeConfig>? edges,
-  }) : edges = List.unmodifiable(edges ?? List.filled(4, const EdgeConfig()));
+    List<PointConfig>? points,
+  }) : edges = List.unmodifiable(edges ?? List.filled(4, const EdgeConfig())),
+       points = List.unmodifiable(
+         points ?? List.filled(4, const PointConfig()),
+       );
   static const byteLength = 32;
+  static const v2ByteLength = 52;
   final int intensity, pressLevel, light, medium, strong, rotation, sleepMs;
   final bool sleepEnabled;
   final List<EdgeConfig> edges;
+  final List<PointConfig> points;
   TouchpadConfig copyWith({
     int? intensity,
     int? pressLevel,
@@ -123,6 +262,7 @@ class TouchpadConfig {
     bool? sleepEnabled,
     int? sleepMs,
     List<EdgeConfig>? edges,
+    List<PointConfig>? points,
   }) => TouchpadConfig(
     intensity: intensity ?? this.intensity,
     pressLevel: pressLevel ?? this.pressLevel,
@@ -133,6 +273,7 @@ class TouchpadConfig {
     sleepEnabled: sleepEnabled ?? this.sleepEnabled,
     sleepMs: sleepMs ?? this.sleepMs,
     edges: edges ?? this.edges,
+    points: points ?? this.points,
   );
   String? get validationError {
     if (intensity < 0 || intensity > 100) return '触觉强度必须为 0～100';
@@ -145,6 +286,14 @@ class TouchpadConfig {
       return '休眠时间必须为 1～3600 整秒';
     }
     if (edges.length != 4) return '必须包含四条边缘';
+    if (points.length != 4) return '必须包含四个单点';
+    for (final position in PointPosition.values) {
+      final p = points[position.index];
+      if (p.radius < 1 || p.radius > 30 || p.step < 1 || p.step > 10) {
+        return '${pointNames[position.index]}半径必须为 1～30%，步距必须为 1～10%';
+      }
+      if (p.enabled && p.action == PointAction.off) return '启用的单点必须选择功能';
+    }
     for (final side in EdgeSide.values) {
       final e = edges[side.index];
       if (e.width < 1 ||
@@ -158,10 +307,14 @@ class TouchpadConfig {
     return null;
   }
 
-  Uint8List encode() {
+  Uint8List encode({int version = 1}) {
     final error = validationError;
     if (error != null) throw FormatException(error);
-    final b = Uint8List(byteLength);
+    if (version != 1 && version != 2) throw const FormatException('配置结构版本不兼容');
+    if (version == 1 && points.any((p) => !p.isDefault)) {
+      throw const FormatException('单点配置需要配置结构 v2');
+    }
+    final b = Uint8List(version == 1 ? byteLength : v2ByteLength);
     b.setRange(0, 8, [
       intensity,
       pressLevel,
@@ -169,18 +322,22 @@ class TouchpadConfig {
       medium,
       strong,
       rotation,
-      sleepEnabled ? 1 : 0,
-      repeatMask,
+      (sleepEnabled ? 1 : 0) | (pointToEdgeMask << 1),
+      repeatMask | (pointRepeatMask << 4),
     ]);
     ByteData.sublistView(b).setUint32(8, sleepMs, Endian.little);
     for (var i = 0; i < 4; i++) {
       b.setRange(12 + i * 5, 17 + i * 5, edges[i].bytes);
+      if (version == 2) b.setRange(32 + i * 5, 37 + i * 5, points[i].bytes);
     }
     return b;
   }
 
-  static TouchpadConfig decode(Uint8List b) {
-    if (b.length != byteLength || b[7] & 0xf0 != 0 || b[6] > 1) {
+  static TouchpadConfig decode(Uint8List b, {int version = 1}) {
+    if (version != 1 && version != 2) throw const FormatException('配置结构版本不兼容');
+    if (b.length != (version == 1 ? byteLength : v2ByteLength) ||
+        (version == 1 && b[7] & 0xf0 != 0) ||
+        b[6] > (version == 1 ? 1 : 31)) {
       throw const FormatException('配置长度或保留字段错误');
     }
     final edges = <EdgeConfig>[];
@@ -199,6 +356,27 @@ class TouchpadConfig {
         ),
       );
     }
+    final points = <PointConfig>[];
+    if (version == 2) {
+      for (var n = 0; n < 4; n++) {
+        final i = 32 + n * 5;
+        if (b[i] > 1 || b[i + 1] >= PointAction.values.length || b[i + 2] > 1) {
+          throw const FormatException('单点枚举无效');
+        }
+        points.add(
+          PointConfig(
+            enabled: b[i] == 1,
+            action: b[i + 2] == 1
+                ? PointAction.values[b[i + 1]].opposite
+                : PointAction.values[b[i + 1]],
+            radius: b[i + 3],
+            step: b[i + 4],
+            repeatWhileHeld: b[7] & (1 << (n + 4)) != 0,
+            allowPointToEdge: b[6] & (1 << (n + 1)) != 0,
+          ),
+        );
+      }
+    }
     final c = TouchpadConfig(
       intensity: b[0],
       pressLevel: b[1],
@@ -206,9 +384,10 @@ class TouchpadConfig {
       medium: b[3],
       strong: b[4],
       rotation: b[5],
-      sleepEnabled: b[6] == 1,
+      sleepEnabled: b[6] & 1 != 0,
       sleepMs: ByteData.sublistView(b).getUint32(8, Endian.little),
       edges: edges,
+      points: version == 2 ? points : null,
     );
     final error = c.validationError;
     if (error != null) throw FormatException(error);
@@ -218,6 +397,14 @@ class TouchpadConfig {
   int get repeatMask => edges.asMap().entries.fold(
     0,
     (mask, entry) => mask | (entry.value.repeatWhileHeld ? 1 << entry.key : 0),
+  );
+  int get pointRepeatMask => points.asMap().entries.fold(
+    0,
+    (mask, entry) => mask | (entry.value.repeatWhileHeld ? 1 << entry.key : 0),
+  );
+  int get pointToEdgeMask => points.asMap().entries.fold(
+    0,
+    (mask, entry) => mask | (entry.value.allowPointToEdge ? 1 << entry.key : 0),
   );
 
   // An unsupported action keeps the entire edge mapping unchanged, so a
@@ -251,6 +438,17 @@ class TouchpadConfig {
         : sleepEnabled,
     sleepMs: mask & Capability.sleep != 0 ? draft.sleepMs : sleepMs,
     edges: List.generate(4, (i) => _mergeEdge(edges[i], draft.edges[i], mask)),
+    points: List.generate(4, (i) {
+      final base = mask & Capability.points != 0 ? draft.points[i] : points[i];
+      return base.copyWith(
+        allowPointToEdge:
+            mask & Capability.points != 0 &&
+                mask & Capability.pointToEdge != 0 &&
+                mask & Capability.edges != 0
+            ? draft.points[i].allowPointToEdge
+            : points[i].allowPointToEdge,
+      );
+    }),
   );
   bool same(TouchpadConfig other, [int mask = Capability.all]) {
     final a = [
@@ -263,6 +461,9 @@ class TouchpadConfig {
       sleepEnabled,
       sleepMs,
       repeatMask,
+      pointRepeatMask,
+      pointToEdgeMask,
+      ...points.expand((p) => p.bytes),
       ...edges.expand((e) => e.bytes),
     ];
     final m = merge(other, mask);
@@ -276,6 +477,9 @@ class TouchpadConfig {
       m.sleepEnabled,
       m.sleepMs,
       m.repeatMask,
+      m.pointRepeatMask,
+      m.pointToEdgeMask,
+      ...m.points.expand((p) => p.bytes),
       ...m.edges.expand((e) => e.bytes),
     ];
     return List.generate(a.length, (i) => a[i] == b[i]).every((v) => v);

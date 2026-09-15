@@ -88,17 +88,19 @@ class Packet {
 }
 
 class DeviceInfo {
-  const DeviceInfo(this.capabilities, this.firmware);
+  const DeviceInfo(this.capabilities, this.firmware, {this.configVersion = 1});
   final int capabilities;
   final String firmware;
+  final int configVersion;
   static DeviceInfo decode(Uint8List b) {
-    if (b.length != 12 || b[10] != 1 || b[11] != 0) {
+    if (b.length != 12 || (b[10] != 1 && b[10] != 2) || b[11] != 0) {
       throw const FormatException('设备信息或配置结构版本不兼容');
     }
     final d = ByteData.sublistView(b);
     return DeviceInfo(
       d.getUint32(0, Endian.little),
       '${d.getUint16(4, Endian.little)}.${d.getUint16(6, Endian.little)}.${d.getUint16(8, Endian.little)}',
+      configVersion: b[10],
     );
   }
 }

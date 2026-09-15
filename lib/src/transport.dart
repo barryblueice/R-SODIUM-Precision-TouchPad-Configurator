@@ -84,9 +84,14 @@ class WindowsHidTransport extends HidTransport {
 
 // In-memory firmware emulator; no OS input or physical HID writes.
 class MockHidTransport extends HidTransport {
-  MockHidTransport({this.legacy = false, this.capabilities = Capability.all});
+  MockHidTransport({
+    this.legacy = false,
+    this.capabilities = Capability.all,
+    this.configVersion = 2,
+  });
   final bool legacy;
   final int capabilities;
+  final int configVersion;
   bool present = true, opened = false;
   bool dropWriteReply = false, ignoreWrites = false;
   int writeStatus = Status.ok;
@@ -99,7 +104,7 @@ class MockHidTransport extends HidTransport {
   Future<List<HidDevice>> enumerate() async => present
       ? [
           HidDevice(
-            id: legacy ? 'demo-legacy' : 'demo-v1',
+            id: legacy ? 'demo-legacy' : 'demo-v$configVersion',
             name: 'R-SODIUM 演示触摸板',
             serial: 'DEMO-0001',
             collections: 3,
@@ -136,14 +141,15 @@ class MockHidTransport extends HidTransport {
       final d = ByteData.sublistView(payload);
       d.setUint32(0, capabilities, Endian.little);
       d.setUint16(4, 1, Endian.little);
-      payload[10] = 1;
+      payload[10] = configVersion;
     } else if (p.command == Command.read) {
-      payload = config.encode();
+      payload = config.encode(version: configVersion);
     } else {
       writes++;
       status = writeStatus;
-      final incoming = TouchpadConfig.decode(p.payload);
-      if (!config.merge(incoming, capabilities).same(incoming)) {
+      final incoming = TouchpadConfig.decode(p.payload, version: configVersion);
+      final supported = Capability.negotiated(capabilities, configVersion);
+      if (!config.merge(incoming, supported).same(incoming)) {
         status = Status.unsupported;
       }
       if ((status == Status.ok || status == Status.reconnect) &&

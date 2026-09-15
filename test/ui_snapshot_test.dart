@@ -64,10 +64,40 @@ void main() {
     await capture('haptics-light');
     await tester.tap(find.text('方向与休眠').first);
     await capture('settings-light');
-    await tester.tap(find.text('边缘滑动').first);
+    await tester.tap(find.text('边缘手势').first);
     await capture('edges-light');
     tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
     await tester.pumpAndSettle();
     await capture('edges-dark');
+    await tester.tap(find.widgetWithText(ListTile, '单点手势'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, '右上点'));
+    await capture('points-dark');
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+    await capture('points-light');
+    await tester.ensureVisible(find.text('允许点转为滑动时继续沿用边缘解析'));
+    await capture('points-conversion-light');
+    final unavailable = AppController(
+      transport: MockHidTransport(),
+      isWindows11: true,
+    );
+    addTearDown(unavailable.dispose);
+    final demo = unavailable.transport as MockHidTransport;
+    demo.config = demo.config.copyWith(intensity: 25, pressLevel: 3);
+    await unavailable.scan();
+    unavailable.draft = unavailable.draft.copyWith(
+      intensity: 75,
+      pressLevel: 1,
+    );
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: key,
+        child: TouchpadApp(
+          key: const ValueKey('unavailable'),
+          controller: unavailable,
+        ),
+      ),
+    );
+    await capture('haptics-unavailable-light');
   });
 }

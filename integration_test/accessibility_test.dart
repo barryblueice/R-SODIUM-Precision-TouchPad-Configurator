@@ -31,15 +31,18 @@ void main() {
       await mouse.addPointer(location: const Offset(10, 10));
       debugPrint('ACCESSIBILITY_INITIALIZED');
       for (var cycle = 0; cycle < 3; cycle++) {
-        for (final title in ['方向与休眠', '边缘滑动', '触觉与按压']) {
+        for (final title in ['方向与休眠', '边缘手势', '单点手势', '触觉与按压']) {
           final nav = tester.getCenter(find.widgetWithText(ListTile, title));
           await mouse.moveTo(nav);
           await mouse.down(nav);
           await mouse.up();
           await settle();
           debugPrint('ACCESSIBILITY_PAGE $cycle $title');
-          if (title != '边缘滑动') continue;
-          for (final icon in [Icons.swap_vert, Icons.swap_horiz]) {
+          if (title != '边缘手势' && title != '单点手势') continue;
+          for (final icon
+              in title == '单点手势'
+                  ? [Icons.adjust]
+                  : [Icons.swap_vert, Icons.swap_horiz]) {
             await mouse.moveTo(tester.getCenter(find.byIcon(icon).first));
             await tester.pump(const Duration(milliseconds: 600));
           }

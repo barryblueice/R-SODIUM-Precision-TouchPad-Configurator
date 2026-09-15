@@ -130,10 +130,9 @@ void main() {
         tester.widget<DropdownButtonFormField<String>>(selector).onChanged,
         isNull,
       );
-      expect(
-        tester.widget<Slider>(find.byType(Slider).first).onChanged,
-        isNull,
-      );
+      expect(find.byType(Slider), findsNothing);
+      expect(find.byType(SegmentedButton<int>), findsNothing);
+      expect(find.text('未读取'), findsNWidgets(2));
       expect(tester.takeException(), isNull);
     },
   );

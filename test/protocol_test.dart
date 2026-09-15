@@ -69,7 +69,7 @@ void main() {
     final extendedInfo = DeviceInfo.decode(
       Packet.decode(fixtures['extended_info_response']!).payload,
     );
-    expect(extendedInfo.capabilities, Capability.all);
+    expect(extendedInfo.capabilities, Capability.v1);
     expect(extendedInfo.firmware, '1.1.0');
     final extendedConfig = TouchpadConfig(
       edges: const [
@@ -168,7 +168,7 @@ void main() {
         expect(() => TouchpadConfig.decode(bytes), throwsFormatException);
       }
       expect(() => TouchpadConfig.decode(Uint8List(31)), throwsFormatException);
-      final info = Packet.decode(fixtures['info_response']!).payload..[10] = 2;
+      final info = Packet.decode(fixtures['info_response']!).payload..[10] = 3;
       expect(() => DeviceInfo.decode(info), throwsFormatException);
     },
   );

@@ -196,7 +196,7 @@ void main() {
       await c.setDemo(true);
       old.pending.complete([]);
       await scan;
-      expect(c.devices.single.id, 'demo-v1');
+      expect(c.devices.single.id, 'demo-v2');
       expect(c.connected, isTrue);
     },
   );

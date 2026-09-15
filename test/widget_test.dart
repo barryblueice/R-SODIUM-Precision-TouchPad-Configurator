@@ -34,7 +34,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.widgetWithText(ListTile, '方向与休眠'));
         await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(ListTile, '边缘滑动'));
+        await tester.tap(find.widgetWithText(ListTile, '边缘手势'));
         await tester.pumpAndSettle();
         final anchors = find.descendant(
           of: find.byType(Slider),
@@ -75,6 +75,7 @@ void main() {
     bool connected = false,
     bool legacy = false,
     bool isWindows11 = false,
+    int capabilities = Capability.all,
     Size size = const Size(1280, 900),
   }) async {
     tester.view.physicalSize = size;
@@ -82,7 +83,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final c = AppController(
-      transport: MockHidTransport(legacy: legacy),
+      transport: MockHidTransport(legacy: legacy, capabilities: capabilities),
       isWindows11: isWindows11,
     );
     addTearDown(c.dispose);
@@ -99,7 +100,52 @@ void main() {
     'Windows 11 disables intensity and pressure but keeps thresholds editable',
     (tester) async {
       final c = await show(tester, connected: true, isWindows11: true);
-      expect(find.text('Windows 11 下触觉强度与按压触发设置不可用。'), findsOneWidget);
+      // A cached draft must not supply values for disabled controls.
+      c.draft = c.draft.copyWith(intensity: 75, pressLevel: 1);
+      c.emit();
+      await tester.pumpAndSettle();
+      expect(tester.widget<Slider>(find.byType(Slider).first).value, 63);
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '63'))
+            .selected,
+        isTrue,
+      );
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '75'))
+            .selected,
+        isFalse,
+      );
+      expect(
+        tester
+            .widget<SegmentedButton<int>>(find.byType(SegmentedButton<int>))
+            .selected,
+        {2},
+      );
+      expect(find.textContaining('设备当前值'), findsNothing);
+      final mock = c.transport as MockHidTransport;
+      mock.config = mock.config.copyWith(intensity: 25, pressLevel: 3);
+      await c.refresh();
+      await tester.pumpAndSettle();
+      expect(tester.widget<Slider>(find.byType(Slider).first).value, 25);
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '25'))
+            .selected,
+        isTrue,
+      );
+      expect(
+        tester
+            .widget<SegmentedButton<int>>(find.byType(SegmentedButton<int>))
+            .selected,
+        {3},
+      );
+      expect(mock.writes, 0);
+      expect(
+        find.text('Windows 11 下触觉强度与按压触发设置将不可用，避免与原生系统偏好冲突。'),
+        findsOneWidget,
+      );
       expect(
         tester.widget<Slider>(find.byType(Slider).first).onChanged,
         isNull,
@@ -125,7 +171,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(c.draft.light, 90);
       expect(c.canApply, isTrue);
-      await tester.tap(find.text('边缘滑动').first);
+      await tester.tap(find.text('边缘手势').first);
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, '上边缘'));
       await tester.pumpAndSettle();
@@ -140,6 +186,86 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets(
+    'Busy haptic controls show readbacks and restore the editable draft',
+    (tester) async {
+      final c = await show(tester, connected: true);
+      c.update(c.draft.copyWith(intensity: 75, pressLevel: 1));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Slider>(find.byType(Slider).first).value, 75);
+      expect(
+        tester
+            .widget<SegmentedButton<int>>(find.byType(SegmentedButton<int>))
+            .selected,
+        {1},
+      );
+      c.busy = true;
+      c.emit();
+      await tester.pump();
+      expect(tester.widget<Slider>(find.byType(Slider).first).value, 63);
+      expect(
+        tester.widget<Slider>(find.byType(Slider).first).onChanged,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<SegmentedButton<int>>(find.byType(SegmentedButton<int>))
+            .selected,
+        {2},
+      );
+      expect(c.draft.intensity, 75);
+      expect(c.draft.pressLevel, 1);
+      c.busy = false;
+      c.emit();
+      await tester.pumpAndSettle();
+      expect(tester.widget<Slider>(find.byType(Slider).first).value, 75);
+      expect(
+        tester
+            .widget<SegmentedButton<int>>(find.byType(SegmentedButton<int>))
+            .selected,
+        {1},
+      );
+      for (final page in ['触觉与按压', '方向与休眠', '边缘手势', '单点手势']) {
+        await tester.tap(find.widgetWithText(ListTile, page));
+        await tester.pumpAndSettle();
+        if (page == '边缘手势') {
+          await tester.tap(find.widgetWithText(ChoiceChip, '左边缘'));
+        } else if (page == '单点手势') {
+          await tester.tap(find.widgetWithText(ChoiceChip, '左上点'));
+        }
+        await tester.pumpAndSettle();
+        expect(find.textContaining('设备当前值'), findsNothing);
+      }
+    },
+  );
+
+  testWidgets('Unavailable haptic values require per-field readback knowledge', (
+    tester,
+  ) async {
+    final c = await show(
+      tester,
+      connected: true,
+      isWindows11: true,
+      capabilities: Capability.intensity,
+    );
+    expect(tester.widget<Slider>(find.byType(Slider).first).value, 63);
+    expect(find.byType(SegmentedButton<int>), findsNothing);
+    expect(find.text('未读取'), findsOneWidget);
+    // Even when current carries defaults, an unread field has no display value.
+    c.client.known = Capability.pressLevel;
+    c.emit();
+    await tester.pumpAndSettle();
+    expect(find.byType(Slider), findsNothing);
+    expect(
+      tester
+          .widget<SegmentedButton<int>>(find.byType(SegmentedButton<int>))
+          .selected,
+      {2},
+    );
+    expect(find.text('未读取'), findsOneWidget);
+    expect(find.textContaining('设备当前值'), findsNothing);
+  });
+
   testWidgets('Disconnected page disables settings and the device selector', (
     tester,
   ) async {
@@ -150,7 +276,9 @@ void main() {
       find.widgetWithText(FilledButton, '保存到演示设备'),
     );
     expect(button.onPressed, isNull);
-    expect(tester.widget<Slider>(find.byType(Slider).first).onChanged, isNull);
+    expect(find.byType(Slider), findsNothing);
+    expect(find.byType(SegmentedButton<int>), findsNothing);
+    expect(find.text('未读取'), findsNWidgets(2));
     expect(
       tester
           .widget<DropdownButtonFormField<String>>(
@@ -234,18 +362,19 @@ void main() {
     final c = await show(tester, connected: true, legacy: true);
     await tester.tap(find.text('方向与休眠').first);
     await tester.pumpAndSettle();
-    expect(find.text('固件暂不支持'), findsNWidgets(2));
+    expect(c.supports(Capability.rotation), isFalse);
+    expect(c.supports(Capability.sleep), isFalse);
     await tester.tap(find.text('纵向翻转'));
     await tester.pumpAndSettle();
     expect(c.draft.rotation, 3);
     expect(c.canApply, isFalse);
-    expect(find.textContaining('设备当前值：未读取'), findsWidgets);
+    expect(find.textContaining('设备当前值'), findsNothing);
   });
   testWidgets('Edge editor selects independent edges and reverses mappings', (
     tester,
   ) async {
     final c = await show(tester, connected: true, size: const Size(1280, 1100));
-    await tester.tap(find.text('边缘滑动').first);
+    await tester.tap(find.text('边缘手势').first);
     await tester.pumpAndSettle();
     expect(
       tester.widget<TouchpadDiagram>(find.byType(TouchpadDiagram)).selected,
@@ -271,7 +400,11 @@ void main() {
       isNull,
     );
     expect(
-      tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).onChanged,
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, '手指不抬起继续动作'),
+          )
+          .onChanged,
       isNull,
     );
     for (final slider in tester.widgetList<Slider>(find.byType(Slider))) {
@@ -315,14 +448,14 @@ void main() {
     }
   });
   testWidgets(
-    'Arrow bindings and held-action checkboxes save independently per edge',
+    'Arrow bindings and held-action switches save independently per edge',
     (tester) async {
       final c = await show(
         tester,
         connected: true,
         size: const Size(1280, 1100),
       );
-      await tester.tap(find.text('边缘滑动').first);
+      await tester.tap(find.text('边缘手势').first);
       await tester.pumpAndSettle();
       for (final side in EdgeSide.values) {
         await tester.ensureVisible(
@@ -341,7 +474,7 @@ void main() {
             : EdgeAction.horizontalArrowKeys;
         await tester.tap(find.text(actionNames[action.index]).last);
         await tester.pumpAndSettle();
-        final heldAction = find.widgetWithText(CheckboxListTile, '手指不抬起继续动作');
+        final heldAction = find.widgetWithText(SwitchListTile, '手指不抬起继续动作');
         await tester.ensureVisible(heldAction);
         expect(heldAction, findsOneWidget);
         await tester.tap(heldAction);
@@ -374,15 +507,14 @@ void main() {
     tester,
   ) async {
     final c = await show(tester, connected: true, legacy: true);
-    await tester.tap(find.text('边缘滑动').first);
+    await tester.tap(find.text('边缘手势').first);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, '左边缘'));
     await tester.pumpAndSettle();
-    final heldAction = find.widgetWithText(CheckboxListTile, '手指不抬起继续动作');
+    final heldAction = find.widgetWithText(SwitchListTile, '手指不抬起继续动作');
     await tester.ensureVisible(heldAction);
     await tester.tap(heldAction);
     await tester.pumpAndSettle();
-    expect(find.text('需要固件支持；可预览，暂不发送。'), findsOneWidget);
     expect(c.draft.edges[2].repeatWhileHeld, isTrue);
     expect(c.canApply, isFalse);
     expect(tester.takeException(), isNull);
@@ -414,7 +546,7 @@ void main() {
       );
       oldScroll.position.jumpTo(oldScroll.position.maxScrollExtent);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('边缘滑动').first);
+      await tester.tap(find.text('边缘手势').first);
       await tester.pumpAndSettle();
       final edgeScroll = tester.state<ScrollableState>(
         find.byType(Scrollable).first,

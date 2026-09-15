@@ -15,6 +15,7 @@ class DeviceClient {
   DeviceClient(this.transport);
   final HidTransport transport;
   bool modern = false;
+  int configVersion = 1;
   int capabilities = 0, known = 0;
   String firmware = '未读取';
   String note = '';
@@ -75,6 +76,7 @@ class DeviceClient {
 
   Future<TouchpadConfig> connect(String id) async {
     modern = false;
+    configVersion = 1;
     capabilities = known = 0;
     firmware = '未读取';
     note = '';
@@ -92,10 +94,8 @@ class DeviceClient {
     if (response != null) {
       final info = DeviceInfo.decode(response.payload);
       modern = true;
-      capabilities = info.capabilities & Capability.all;
-      if (capabilities & Capability.edges == 0) {
-        capabilities &= ~(Capability.edgeArrowKeys | Capability.edgeRepeat);
-      }
+      configVersion = info.configVersion;
+      capabilities = Capability.negotiated(info.capabilities, configVersion);
       firmware = info.firmware;
     }
     return readConfig();
@@ -105,12 +105,19 @@ class DeviceClient {
     if (modern) {
       final config = TouchpadConfig.decode(
         (await request(Command.read)).payload,
+        version: configVersion,
       );
       if ((capabilities & Capability.edgeArrowKeys == 0 &&
               config.edges.any((e) => e.action.isArrowKey)) ||
           (capabilities & Capability.edgeRepeat == 0 &&
               config.repeatMask != 0)) {
         throw const FormatException('边缘扩展配置与固件能力不一致');
+      }
+      if ((capabilities & Capability.points == 0 &&
+              config.points.any((p) => !p.isDefault)) ||
+          (capabilities & Capability.pointToEdge == 0 &&
+              config.pointToEdgeMask != 0)) {
+        throw const FormatException('单点配置与固件能力不一致');
       }
       known = capabilities;
       return config;
@@ -153,7 +160,7 @@ class DeviceClient {
       try {
         final response = await request(
           Command.write,
-          payload: target.encode(),
+          payload: target.encode(version: configVersion),
           retry: false,
         );
         if (response.payload.isNotEmpty) {

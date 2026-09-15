@@ -56,7 +56,8 @@ class _ConfiguratorState extends State<Configurator> {
   late final AppController c;
   int page = 1;
   EdgeSide? side;
-  static const titles = ['设备信息', '触觉与按压', '方向与休眠', '边缘滑动'];
+  PointPosition? point;
+  static const titles = ['设备信息', '触觉与按压', '方向与休眠', '边缘手势', '单点手势'];
   bool get _editable => c.connected && !c.busy;
   bool get _hapticEditable => _editable && c.hapticSettingsAvailable;
   @override
@@ -102,6 +103,7 @@ class _ConfiguratorState extends State<Configurator> {
                     (1, Icons.vibration_rounded),
                     (2, Icons.screen_rotation_alt_rounded),
                     (3, Icons.swipe_rounded),
+                    (4, Icons.touch_app_rounded),
                     (0, Icons.usb_rounded),
                   ])
                     Padding(
@@ -215,7 +217,8 @@ class _ConfiguratorState extends State<Configurator> {
                                       0 => _devicePage(),
                                       1 => _hapticPage(),
                                       2 => _generalPage(),
-                                      _ => _edgePage(),
+                                      3 => _edgePage(),
+                                      _ => _pointPage(),
                                     },
                                   ],
                                 ),
@@ -357,14 +360,6 @@ class _ConfiguratorState extends State<Configurator> {
                   ),
                 ),
               ),
-              if (c.connected && capability != null && !c.supports(capability))
-                Text(
-                  '固件暂不支持',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
             ],
           ),
           if (subtitle.isNotEmpty) ...[
@@ -384,18 +379,6 @@ class _ConfiguratorState extends State<Configurator> {
       ),
     ),
   );
-  Widget _readback(int bit, String value) => !c.edited
-      ? const SizedBox.shrink()
-      : Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: Text(
-            '设备当前值：${c.knows(bit) ? value : '未读取'}',
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        );
   List<Widget> _devicePage() => [
     _card(
       '设备',
@@ -455,121 +438,133 @@ class _ConfiguratorState extends State<Configurator> {
     ),
   );
 
-  List<Widget> _hapticPage() => [
-    if (!c.hapticSettingsAvailable) ...[
-      _notice('Windows 11 下触觉强度与按压触发设置将不可用，避免与原生系统偏好冲突。'),
-      const SizedBox(height: 16),
-    ],
-    _card(
-      '触觉反馈',
-      '强度为 0 时关闭触觉反馈。',
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _slider(
-            '触觉强度',
-            c.draft.intensity,
-            0,
-            100,
-            (v) => c.update(c.draft.copyWith(intensity: v)),
-            suffix: '%',
-            enabled: c.hapticSettingsAvailable,
-          ),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final v in [0, 25, 63, 75, 100])
-                ChoiceChip(
-                  label: Text(v == 0 ? '关闭' : '$v'),
-                  selected: c.draft.intensity == v,
-                  onSelected: !_hapticEditable
-                      ? null
-                      : (_) => c.update(c.draft.copyWith(intensity: v)),
+  List<Widget> _hapticPage() {
+    final intensity = _hapticEditable
+        ? c.draft.intensity
+        : c.knows(Capability.intensity)
+        ? c.current?.intensity
+        : null;
+    final pressLevel = _hapticEditable
+        ? c.draft.pressLevel
+        : c.knows(Capability.pressLevel)
+        ? c.current?.pressLevel
+        : null;
+    return [
+      if (!c.hapticSettingsAvailable) ...[
+        _notice('Windows 11 下触觉强度与按压触发设置将不可用，避免与原生系统偏好冲突。'),
+        const SizedBox(height: 16),
+      ],
+      _card(
+        '触觉反馈',
+        '强度为 0 时关闭触觉反馈。',
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (intensity == null)
+              _detail('触觉强度', '未读取')
+            else ...[
+              _slider(
+                '触觉强度',
+                intensity,
+                0,
+                100,
+                (v) => c.update(c.draft.copyWith(intensity: v)),
+                suffix: '%',
+                enabled: _hapticEditable,
+              ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final v in [0, 25, 63, 75, 100])
+                    ChoiceChip(
+                      label: Text(v == 0 ? '关闭' : '$v'),
+                      selected: intensity == v,
+                      onSelected: !_hapticEditable
+                          ? null
+                          : (_) => c.update(c.draft.copyWith(intensity: v)),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+        capability: Capability.intensity,
+      ),
+      const SizedBox(height: 20),
+      _card(
+        '按压触发',
+        '设置触发点击所需的按压力度。',
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (pressLevel == null)
+              const Text('未读取')
+            else
+              SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment(value: 1, label: Text('轻')),
+                  ButtonSegment(value: 2, label: Text('中')),
+                  ButtonSegment(value: 3, label: Text('重')),
+                ],
+                selected: {pressLevel},
+                onSelectionChanged: !_hapticEditable
+                    ? null
+                    : (v) => c.update(c.draft.copyWith(pressLevel: v.first)),
+              ),
+          ],
+        ),
+        capability: Capability.pressLevel,
+      ),
+      const SizedBox(height: 20),
+      _card(
+        '自定义三档阈值',
+        '原始压力值，范围 1～255；轻 ≤ 中 ≤ 重。',
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                NumberEditor(
+                  label: '轻档阈值',
+                  value: c.draft.light,
+                  min: 1,
+                  max: 255,
+                  enabled: _editable,
+                  onChanged: (v) => c.update(c.draft.copyWith(light: v)),
                 ),
-            ],
-          ),
-          _readback(Capability.intensity, '${c.current?.intensity} / 100'),
-        ],
-      ),
-      capability: Capability.intensity,
-    ),
-    const SizedBox(height: 20),
-    _card(
-      '按压触发',
-      '设置触发点击所需的按压力度。',
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SegmentedButton<int>(
-            segments: const [
-              ButtonSegment(value: 1, label: Text('轻')),
-              ButtonSegment(value: 2, label: Text('中')),
-              ButtonSegment(value: 3, label: Text('重')),
-            ],
-            selected: {c.draft.pressLevel},
-            onSelectionChanged: !_hapticEditable
-                ? null
-                : (v) => c.update(c.draft.copyWith(pressLevel: v.first)),
-          ),
-          _readback(
-            Capability.pressLevel,
-            c.current == null ? '' : ['轻', '中', '重'][c.current!.pressLevel - 1],
-          ),
-        ],
-      ),
-      capability: Capability.pressLevel,
-    ),
-    const SizedBox(height: 20),
-    _card(
-      '自定义三档阈值',
-      '原始压力值，范围 1～255；轻 ≤ 中 ≤ 重。',
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              NumberEditor(
-                label: '轻档阈值',
-                value: c.draft.light,
-                min: 1,
-                max: 255,
-                enabled: _editable,
-                onChanged: (v) => c.update(c.draft.copyWith(light: v)),
-              ),
-              NumberEditor(
-                label: '中档阈值',
-                value: c.draft.medium,
-                min: 1,
-                max: 255,
-                enabled: _editable,
-                onChanged: (v) => c.update(c.draft.copyWith(medium: v)),
-              ),
-              NumberEditor(
-                label: '重档阈值',
-                value: c.draft.strong,
-                min: 1,
-                max: 255,
-                enabled: _editable,
-                onChanged: (v) => c.update(c.draft.copyWith(strong: v)),
-              ),
-            ],
-          ),
-          if (c.draft.light > c.draft.medium || c.draft.medium > c.draft.strong)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: _notice('请确保轻档 ≤ 中档 ≤ 重档。', error: true),
+                NumberEditor(
+                  label: '中档阈值',
+                  value: c.draft.medium,
+                  min: 1,
+                  max: 255,
+                  enabled: _editable,
+                  onChanged: (v) => c.update(c.draft.copyWith(medium: v)),
+                ),
+                NumberEditor(
+                  label: '重档阈值',
+                  value: c.draft.strong,
+                  min: 1,
+                  max: 255,
+                  enabled: _editable,
+                  onChanged: (v) => c.update(c.draft.copyWith(strong: v)),
+                ),
+              ],
             ),
-          _readback(
-            Capability.thresholds,
-            '${c.current?.light} / ${c.current?.medium} / ${c.current?.strong}',
-          ),
-        ],
+            if (c.draft.light > c.draft.medium ||
+                c.draft.medium > c.draft.strong)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: _notice('请确保轻档 ≤ 中档 ≤ 重档。', error: true),
+              ),
+          ],
+        ),
+        capability: Capability.thresholds,
       ),
-      capability: Capability.thresholds,
-    ),
-  ];
+    ];
+  }
+
   List<Widget> _generalPage() => [
     _card(
       '摆放方向',
@@ -595,12 +590,7 @@ class _ConfiguratorState extends State<Configurator> {
                 ),
             ],
           ),
-          _readback(
-            Capability.rotation,
-            c.current == null ? '' : rotationNames[c.current!.rotation],
-          ),
           const SizedBox(height: 12),
-          const Text('更改方向后，设备可能会短暂断开并重新连接。', style: TextStyle(fontSize: 12)),
         ],
       ),
       capability: Capability.rotation,
@@ -642,12 +632,6 @@ class _ConfiguratorState extends State<Configurator> {
                             c.update(c.draft.copyWith(sleepMs: seconds * 1000)),
                 ),
             ],
-          ),
-          _readback(
-            Capability.sleep,
-            c.current?.sleepEnabled == true
-                ? '${c.current!.sleepMs ~/ 1000} 秒后休眠'
-                : '关闭',
           ),
         ],
       ),
@@ -753,41 +737,6 @@ class _ConfiguratorState extends State<Configurator> {
                     },
             ),
             const SizedBox(height: 12),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('反转滑动方向'),
-              subtitle: selectedSide == null
-                  ? null
-                  : Text(e.direction(selectedSide)),
-              value: e.reversed,
-              onChanged: !edgeEditable
-                  ? null
-                  : (v) => change(e.copyWith(reversed: v)),
-            ),
-            if (!c.supports(Capability.edges) ||
-                !c.supports(Capability.edgeArrowKeys))
-              const Padding(
-                padding: EdgeInsets.only(bottom: 8),
-                child: Text(
-                  '方向键映射需要固件支持；可预览，暂不发送。',
-                  style: TextStyle(fontSize: 12),
-                ),
-              ),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              title: const Text('手指不抬起继续动作'),
-              subtitle: Text(
-                !c.supports(Capability.edges) ||
-                        !c.supports(Capability.edgeRepeat)
-                    ? '需要固件支持；可预览，暂不发送。'
-                    : '随着手指移到触控板边缘外，继续执行动作',
-              ),
-              value: e.repeatWhileHeld,
-              onChanged: !edgeEditable
-                  ? null
-                  : (v) => change(e.copyWith(repeatWhileHeld: v)),
-            ),
             _slider(
               '边缘宽度',
               e.width,
@@ -806,27 +755,176 @@ class _ConfiguratorState extends State<Configurator> {
               suffix: '%',
               enabled: edgeEditable,
             ),
-            const Text(
-              '宽度按垂直于该边的尺寸计算；步距按沿边尺寸计算。达到触发步距后，是否继续执行由上方复选框决定。',
-              style: TextStyle(fontSize: 12, height: 1.7),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('反转滑动方向'),
+              subtitle: selectedSide == null
+                  ? null
+                  : Text(e.direction(selectedSide)),
+              value: e.reversed,
+              onChanged: !edgeEditable
+                  ? null
+                  : (v) => change(e.copyWith(reversed: v)),
             ),
-            if (selectedSide != null)
-              _readback(
-                Capability.edges,
-                c.current == null
-                    ? ''
-                    : '${actionNames[c.current!.edges[selectedSide.index].action.index]} · ${c.current!.edges[selectedSide.index].direction(selectedSide)}',
-              ),
-            if (selectedSide != null)
-              _readback(
-                Capability.edgeRepeat,
-                '手指不抬起继续动作：${c.current?.edges[selectedSide.index].repeatWhileHeld == true ? '已开启' : '已关闭'}',
-              ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('手指不抬起继续动作'),
+              subtitle: Text('随着手指移到触控板边缘外，继续执行动作'),
+              value: e.repeatWhileHeld,
+              onChanged: !edgeEditable
+                  ? null
+                  : (v) => change(e.copyWith(repeatWhileHeld: v)),
+            ),
           ],
         ),
       ),
+      const SizedBox(height: 20)
+    ];
+  }
+
+  List<Widget> _pointPage() {
+    final selected = point;
+    final editable = _editable && selected != null;
+    final p = selected == null
+        ? const PointConfig()
+        : c.draft.points[selected.index];
+    void change(PointConfig value) {
+      if (!editable) return;
+      final points = [...c.draft.points];
+      points[selected.index] = value;
+      c.update(c.draft.copyWith(points: points));
+    }
+
+    return [
+      _card(
+        '单点区域',
+        '圆心固定在四角，半径按触控板短边百分比计算。单点与边缘分别设置。',
+        Column(
+          children: [
+            SizedBox(
+              height: 220,
+              child: Center(
+                child: SizedBox(
+                  width: 300,
+                  height: 220,
+                  child: PointDiagram(
+                    points: c.draft.points,
+                    selected: selected,
+                    onSelect: _editable
+                        ? (value) => setState(() => point = value)
+                        : null,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final position in PointPosition.values)
+                  ChoiceChip(
+                    label: Text(pointNames[position.index]),
+                    selected: selected == position,
+                    onSelected: _editable
+                        ? (_) => setState(() => point = position)
+                        : null,
+                  ),
+              ],
+            ),
+          ],
+        ),
+        capability: Capability.points,
+      ),
       const SizedBox(height: 20),
-      _notice('边缘功能由设备执行。亮度调节需要系统和显示器支持。'),
+      _card(
+        selected == null ? '单点设置' : '${pointNames[selected.index]}设置',
+        selected == null ? '请先选择单点区域' : '实际动作：${p.description}',
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('启用此单点'),
+              value: p.enabled,
+              onChanged: !editable
+                  ? null
+                  : (value) => change(
+                      p.copyWith(
+                        enabled: value,
+                        action: value && p.action == PointAction.off
+                            ? PointAction.volumeUp
+                            : p.action,
+                      ),
+                    ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<PointAction>(
+              key: ValueKey('point-${selected?.name}-${p.action.name}'),
+              initialValue: p.action,
+              decoration: const InputDecoration(labelText: '绑定功能'),
+              items: [
+                for (final action in PointAction.values)
+                  DropdownMenuItem(
+                    value: action,
+                    child: Text(pointActionNames[action.index]),
+                  ),
+              ],
+              onChanged: !editable
+                  ? null
+                  : (value) {
+                      if (value != null) {
+                        change(
+                          p.copyWith(
+                            action: value,
+                            enabled: value != PointAction.off,
+                          ),
+                        );
+                      }
+                    },
+            ),
+            const SizedBox(height: 12),
+            _slider(
+              '区域半径',
+              p.radius,
+              1,
+              30,
+              (value) => change(p.copyWith(radius: value)),
+              suffix: '%',
+              enabled: editable,
+            ),
+            _slider(
+              '触发步距',
+              p.step,
+              1,
+              10,
+              (value) => change(p.copyWith(step: value)),
+              suffix: '%',
+              enabled: editable,
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('手指不抬起继续动作'),
+              subtitle: const Text('重复当前单点动作；转为滑动后进入边缘手势。'),
+              value: p.repeatWhileHeld,
+              onChanged: !editable
+                  ? null
+                  : (value) => change(p.copyWith(repeatWhileHeld: value)),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('允许点转为滑动时继续沿用边缘解析'),
+              subtitle: Text('仅作用于从此点开始的点击。关闭时移动仍按点击处理；开启后保留点击，达到此点步距再进入边缘解析。'),
+              value: p.allowPointToEdge,
+              onChanged: !editable
+                  ? null
+                  : (value) => change(p.copyWith(allowPointToEdge: value)),
+            ),
+          ],
+        ),
+        capability: Capability.points,
+      ),
+      const SizedBox(height: 20)
     ];
   }
 
@@ -1012,6 +1110,138 @@ class TouchpadDiagram extends StatelessWidget {
       ],
     ],
   );
+}
+
+class PointDiagram extends StatelessWidget {
+  const PointDiagram({
+    super.key,
+    required this.points,
+    this.selected,
+    this.onSelect,
+  });
+  final List<PointConfig> points;
+  final PointPosition? selected;
+  final ValueChanged<PointPosition>? onSelect;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    children: [
+      Positioned.fill(
+        child: CustomPaint(
+          painter: _PointPainter(
+            Theme.of(context).colorScheme,
+            points,
+            selected,
+          ),
+        ),
+      ),
+      Center(
+        child: Text(
+          selected == null
+              ? '选择焦点'
+              : '${pointNames[selected!.index]}\n半径 ${points[selected!.index].radius}% 短边',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 12),
+        ),
+      ),
+      for (final position in PointPosition.values)
+        Align(
+          alignment: switch (position) {
+            PointPosition.topLeft => Alignment.topLeft,
+            PointPosition.topRight => Alignment.topRight,
+            PointPosition.bottomLeft => Alignment.bottomLeft,
+            PointPosition.bottomRight => Alignment.bottomRight,
+          },
+          child: Semantics(
+            container: true,
+            selected: selected == position,
+            child: Tooltip(
+              message:
+                  '${pointNames[position.index]}：${points[position.index].description}，半径 ${points[position.index].radius}%',
+              excludeFromSemantics: true,
+              child: IconButton(
+                onPressed: onSelect == null ? null : () => onSelect!(position),
+                icon: Icon(
+                  Icons.adjust,
+                  semanticLabel:
+                      '${pointNames[position.index]}：${points[position.index].description}，半径 ${points[position.index].radius}%',
+                  color: selected == position
+                      ? Theme.of(context).colorScheme.primary
+                      : null,
+                ),
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+}
+
+class _PointPainter extends CustomPainter {
+  _PointPainter(this.scheme, this.points, this.selected);
+  final ColorScheme scheme;
+  final List<PointConfig> points;
+  final PointPosition? selected;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = const EdgeInsets.all(38).deflateRect(Offset.zero & size);
+    canvas.drawRect(rect, Paint()..color = scheme.surfaceContainerHighest);
+    canvas.save();
+    canvas.clipRect(rect);
+    for (final position in PointPosition.values) {
+      final p = points[position.index];
+      final center =
+          rect.topLeft +
+          Offset(position.centerX(rect.width), position.centerY(rect.height));
+      final radius = p.radiusFor(rect.width, rect.height);
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..color = scheme.primary.withValues(
+            alpha: selected == position
+                ? .6
+                : p.enabled
+                ? .3
+                : .08,
+          ),
+      );
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..color = scheme.primary.withValues(alpha: .6),
+      );
+      canvas.drawCircle(center, 2, Paint()..color = scheme.primary);
+      if (selected == position) {
+        // The diagonal radius stays inside the quarter circle.
+        final dx = (position.index.isOdd ? -1 : 1) * radius * .7071067811865476;
+        final dy = (position.index >= 2 ? -1 : 1) * radius * .7071067811865476;
+        canvas.drawLine(
+          center,
+          center + Offset(dx, dy),
+          Paint()
+            ..color = scheme.onSurface
+            ..strokeWidth = 1,
+        );
+      }
+    }
+    canvas.restore();
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..color = scheme.outline.withValues(alpha: .3),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _PointPainter oldDelegate) =>
+      oldDelegate.points != points ||
+      oldDelegate.selected != selected ||
+      oldDelegate.scheme != scheme;
 }
 
 class _PadPainter extends CustomPainter {
