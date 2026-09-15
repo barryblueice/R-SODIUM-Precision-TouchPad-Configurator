@@ -19,6 +19,7 @@ class AppController extends ChangeNotifier {
   TouchpadConfig? current;
   final Map<String, TouchpadConfig> _drafts = {};
   bool busy = false, connected = false, edited = false;
+  bool refreshing = false;
   String message = '未连接触摸板';
   String? error;
   String? discoveryError;
@@ -69,7 +70,7 @@ class AppController extends ChangeNotifier {
         if (connected) {
           connected = false;
           current = null;
-          message = '设备已断开，编辑草稿已保留。';
+          message = '设备已断开，上一次编辑已恢复。';
           await client.close();
         }
       }
@@ -145,7 +146,7 @@ class AppController extends ChangeNotifier {
       }
     } catch (e) {
       error = e.toString();
-      message = '连接未完成，草稿已保留。';
+      message = '连接未完成，上一次编辑已恢复。';
       _nextAutoAttempt = DateTime.now().add(const Duration(seconds: 10));
       await client.close();
     } finally {
@@ -157,14 +158,18 @@ class AppController extends ChangeNotifier {
   Future<void> refresh() async {
     if (!connected || busy) return;
     busy = true;
+    refreshing = true;
     error = null;
     emit();
     try {
       current = await client.readConfig();
-      if (!edited) draft = draft.merge(current!, client.known);
-      message = '已重新读取设备，编辑草稿保持独立。';
+      draft = current!;
+      edited = false;
+      if (selected != null) _drafts.remove(selected!.id);
+      message = '已重新读取设备设置。';
     } catch (e) {
       error = e.toString();
+      message = '重新读取设备设置失败。';
       if (e is HidException &&
           ['disconnected', 'unavailable'].contains(e.code)) {
         connected = false;
@@ -172,6 +177,7 @@ class AppController extends ChangeNotifier {
         await client.close();
       }
     } finally {
+      refreshing = false;
       busy = false;
       emit();
     }
@@ -200,7 +206,7 @@ class AppController extends ChangeNotifier {
       }
     } catch (e) {
       error = e.toString();
-      message = '应用未完成；保留草稿，请检查设备读回值。';
+      message = '应用未完成；上一次编辑已恢复，请检查设备读回值。';
       try {
         current = await client.readConfig();
       } catch (_) {

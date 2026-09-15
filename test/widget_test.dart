@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' show SemanticsAction;
 
 import 'package:flutter/material.dart';
@@ -7,6 +9,16 @@ import 'package:r_sodium_precision_touchpad_configurator/src/app.dart';
 import 'package:r_sodium_precision_touchpad_configurator/src/app_controller.dart';
 import 'package:r_sodium_precision_touchpad_configurator/src/config.dart';
 import 'package:r_sodium_precision_touchpad_configurator/src/transport.dart';
+
+class DelayedReadTransport extends MockHidTransport {
+  Completer<void>? pendingRead;
+
+  @override
+  Future<Uint8List> read(int timeoutMs) async {
+    await pendingRead?.future;
+    return super.read(timeoutMs);
+  }
+}
 
 void main() {
   testWidgets(
@@ -119,6 +131,53 @@ void main() {
     await tester.tap(find.text('保存到演示设备'));
     await tester.pumpAndSettle();
     expect(c.current!.intensity, 75);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('Refresh hides edits until device settings are read back', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final mock = DelayedReadTransport();
+    final c = AppController(transport: mock);
+    addTearDown(c.dispose);
+    await c.scan();
+    await tester.pumpWidget(TouchpadApp(controller: c));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('75'));
+    await tester.pumpAndSettle();
+    expect(c.draft.intensity, 75);
+
+    mock.config = mock.config.copyWith(intensity: 25);
+    final pending = Completer<void>();
+    mock.pendingRead = pending;
+    await tester.tap(find.byTooltip('重新读取设备'));
+    await tester.pump();
+    expect(find.text('正在重新读取设备设置…'), findsOneWidget);
+    expect(find.byType(Slider), findsNothing);
+    expect(find.byType(TextField), findsNothing);
+    expect(find.textContaining('设备当前值：'), findsNothing);
+    expect(
+      tester
+          .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.refresh))
+          .onPressed,
+      isNull,
+    );
+
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('正在重新读取设备设置…'), findsNothing);
+    expect(tester.widget<Slider>(find.byType(Slider).first).value, 25);
+    expect(
+      tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '75')).selected,
+      isFalse,
+    );
+    expect(find.textContaining('设备当前值：'), findsNothing);
+    expect(find.text('已重新读取设备设置。'), findsOneWidget);
+    expect(c.canApply, isFalse);
+    expect(mock.writes, 0);
     expect(tester.takeException(), isNull);
   });
   testWidgets('Legacy unsupported controls are editable with no write button', (

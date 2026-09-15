@@ -178,43 +178,49 @@ class _ConfiguratorState extends State<Configurator> {
                     ),
                   ),
                   Expanded(
-                    child: SingleChildScrollView(
-                      // Do not reuse scroll/semantics nodes across unrelated
-                      // pages. Windows applies AXTree updates incrementally.
-                      key: ValueKey('settings-page-$page'),
-                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                      child: Align(
-                        alignment: Alignment.topCenter,
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 900),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (!c.connected) ...[
-                                _notice(
-                                  c.busy ? '正在连接触摸板…' : '未连接触摸板。接入 USB 后将自动连接。',
+                    child: c.refreshing
+                        ? const Center(child: Text('正在重新读取设备设置…'))
+                        : SingleChildScrollView(
+                            // Do not reuse scroll/semantics nodes across unrelated
+                            // pages. Windows applies AXTree updates incrementally.
+                            key: ValueKey('settings-page-$page'),
+                            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                            child: Align(
+                              alignment: Alignment.topCenter,
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 900,
                                 ),
-                                const SizedBox(height: 16),
-                              ],
-                              if (c.error != null ||
-                                  c.discoveryError != null) ...[
-                                _notice(
-                                  c.error ?? c.discoveryError!,
-                                  error: true,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (!c.connected) ...[
+                                      _notice(
+                                        c.busy
+                                            ? '正在连接触摸板…'
+                                            : '未连接触摸板。接入 USB 后将自动连接。',
+                                      ),
+                                      const SizedBox(height: 16),
+                                    ],
+                                    if (c.error != null ||
+                                        c.discoveryError != null) ...[
+                                      _notice(
+                                        c.error ?? c.discoveryError!,
+                                        error: true,
+                                      ),
+                                      const SizedBox(height: 16),
+                                    ],
+                                    ...switch (page) {
+                                      0 => _devicePage(),
+                                      1 => _hapticPage(),
+                                      2 => _generalPage(),
+                                      _ => _edgePage(),
+                                    },
+                                  ],
                                 ),
-                                const SizedBox(height: 16),
-                              ],
-                              ...switch (page) {
-                                0 => _devicePage(),
-                                1 => _hapticPage(),
-                                2 => _generalPage(),
-                                _ => _edgePage(),
-                              },
-                            ],
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                    ),
                   ),
                 ],
               ),
@@ -999,7 +1005,8 @@ class _PadPainter extends CustomPainter {
   final EdgeSide? selected;
   @override
   void paint(Canvas canvas, Size size) {
-    final rect = Rect.fromLTWH(38, 22, size.width - 76, size.height - 44);
+    // Leave the same clearance for the arrow icons on all four sides.
+    final rect = const EdgeInsets.all(38).deflateRect(Offset.zero & size);
     final rounded = RRect.fromRectAndRadius(rect, const Radius.circular(8));
     canvas.drawRRect(rounded, Paint()..color = scheme.surfaceContainerHighest);
     canvas.save();

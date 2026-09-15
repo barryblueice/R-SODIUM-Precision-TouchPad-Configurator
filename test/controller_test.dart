@@ -157,6 +157,37 @@ void main() {
       expect(c.connected, isTrue);
     },
   );
+  test('Refresh replaces edits and clears cached drafts for modern and legacy devices', () async {
+    for (final legacy in [false, true]) {
+      final mock = MockHidTransport(legacy: legacy);
+      final c = AppController(transport: mock);
+      addTearDown(c.dispose);
+      await c.scan();
+      c.update(c.draft.copyWith(intensity: 75, rotation: 3));
+      // Reconnecting stores the edited values in the per-device cache.
+      await c.connect(c.devices.first);
+      mock.config = mock.config.copyWith(intensity: 25);
+      final refresh = c.refresh();
+      expect(c.refreshing, isTrue);
+      expect(c.canApply, isFalse);
+      await refresh;
+      expect(c.draft.same(c.current!), isTrue);
+      expect(c.draft.intensity, 25);
+      expect(c.draft.rotation, 0);
+      expect(c.edited, isFalse);
+      expect(c.refreshing, isFalse);
+      expect(c.busy, isFalse);
+      expect(c.canApply, isFalse);
+      expect(mock.writes, 0);
+
+      // Switching away and back must not resurrect the discarded draft.
+      final device = c.devices.first;
+      await c.connect(const HidDevice(id: 'another-device', name: 'Other'));
+      await c.connect(device);
+      expect(c.draft.intensity, 25);
+      expect(c.edited, isFalse);
+    }
+  });
   test(
     'Refresh after physical disconnect invalidates device state immediately',
     () async {
@@ -165,10 +196,15 @@ void main() {
       addTearDown(c.dispose);
       await c.scan();
       await c.connect(c.devices.first);
+      c.update(c.draft.copyWith(intensity: 75));
       mock.present = false;
       await c.refresh();
       expect(c.connected, isFalse);
       expect(c.current, isNull);
+      expect(c.error, isNotNull);
+      expect(c.refreshing, isFalse);
+      expect(c.busy, isFalse);
+      expect(c.draft.intensity, 75);
     },
   );
   test(
