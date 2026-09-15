@@ -11,11 +11,18 @@ abstract final class Capability {
   static const edgeRepeat = 128;
   static const points = 256;
   static const pointToEdge = 512;
+  static const wirelessThresholds = 1024;
   static const v1 = 255;
-  static const all = 1023;
+  static const v2 = 1023;
+  static const all = 2047;
 
   static int negotiated(int mask, int configVersion) {
-    mask &= configVersion == 1 ? v1 : all;
+    mask &= switch (configVersion) {
+      1 => v1,
+      2 => v2,
+      3 => all,
+      _ => 0,
+    };
     if (mask & edges == 0) {
       mask &= ~(edgeArrowKeys | edgeRepeat | pointToEdge);
     }
@@ -237,6 +244,9 @@ class TouchpadConfig {
     this.light = 80,
     this.medium = 100,
     this.strong = 130,
+    this.wirelessLight = 60,
+    this.wirelessMedium = 80,
+    this.wirelessStrong = 100,
     this.rotation = 0,
     this.sleepEnabled = true,
     this.sleepMs = 180000,
@@ -248,7 +258,9 @@ class TouchpadConfig {
        );
   static const byteLength = 32;
   static const v2ByteLength = 52;
+  static const v3ByteLength = 52;
   final int intensity, pressLevel, light, medium, strong, rotation, sleepMs;
+  final int wirelessLight, wirelessMedium, wirelessStrong;
   final bool sleepEnabled;
   final List<EdgeConfig> edges;
   final List<PointConfig> points;
@@ -258,6 +270,9 @@ class TouchpadConfig {
     int? light,
     int? medium,
     int? strong,
+    int? wirelessLight,
+    int? wirelessMedium,
+    int? wirelessStrong,
     int? rotation,
     bool? sleepEnabled,
     int? sleepMs,
@@ -269,6 +284,9 @@ class TouchpadConfig {
     light: light ?? this.light,
     medium: medium ?? this.medium,
     strong: strong ?? this.strong,
+    wirelessLight: wirelessLight ?? this.wirelessLight,
+    wirelessMedium: wirelessMedium ?? this.wirelessMedium,
+    wirelessStrong: wirelessStrong ?? this.wirelessStrong,
     rotation: rotation ?? this.rotation,
     sleepEnabled: sleepEnabled ?? this.sleepEnabled,
     sleepMs: sleepMs ?? this.sleepMs,
@@ -279,7 +297,13 @@ class TouchpadConfig {
     if (intensity < 0 || intensity > 100) return '触觉强度必须为 0～100';
     if (pressLevel < 1 || pressLevel > 3) return '按压档位必须为 1～3';
     if (light < 1 || strong > 255 || light > medium || medium > strong) {
-      return '压力阈值必须满足 1 ≤ 轻 ≤ 中 ≤ 重 ≤ 255';
+      return '有线压力阈值必须满足 1 ≤ 轻 ≤ 中 ≤ 重 ≤ 255';
+    }
+    if (wirelessLight < 1 ||
+        wirelessStrong > 100 ||
+        wirelessLight > wirelessMedium ||
+        wirelessMedium > wirelessStrong) {
+      return '无线压力阈值必须满足 1 ≤ 轻 ≤ 中 ≤ 重 ≤ 100';
     }
     if (rotation < 0 || rotation > 3) return '无效旋转方向';
     if (sleepMs < 1000 || sleepMs > 3600000 || sleepMs % 1000 != 0) {
@@ -310,7 +334,10 @@ class TouchpadConfig {
   Uint8List encode({int version = 1}) {
     final error = validationError;
     if (error != null) throw FormatException(error);
-    if (version != 1 && version != 2) throw const FormatException('配置结构版本不兼容');
+    if (version < 1 || version > 3) throw const FormatException('配置结构版本不兼容');
+    if (version < 3 && !hasDefaultWirelessThresholds) {
+      throw const FormatException('无线阈值需要配置结构 v3');
+    }
     if (version == 1 && points.any((p) => !p.isDefault)) {
       throw const FormatException('单点配置需要配置结构 v2');
     }
@@ -329,15 +356,28 @@ class TouchpadConfig {
     for (var i = 0; i < 4; i++) {
       b.setRange(12 + i * 5, 17 + i * 5, edges[i].bytes);
       if (version == 2) b.setRange(32 + i * 5, 37 + i * 5, points[i].bytes);
+      if (version == 3) {
+        final p = points[i];
+        b.setRange(32 + i * 4, 36 + i * 4, [
+          p.enabled ? 1 : 0,
+          p.action.index,
+          p.radius,
+          p.step,
+        ]);
+      }
+    }
+    if (version == 3) {
+      b.setRange(48, 51, [wirelessLight, wirelessMedium, wirelessStrong]);
     }
     return b;
   }
 
   static TouchpadConfig decode(Uint8List b, {int version = 1}) {
-    if (version != 1 && version != 2) throw const FormatException('配置结构版本不兼容');
+    if (version < 1 || version > 3) throw const FormatException('配置结构版本不兼容');
     if (b.length != (version == 1 ? byteLength : v2ByteLength) ||
         (version == 1 && b[7] & 0xf0 != 0) ||
-        b[6] > (version == 1 ? 1 : 31)) {
+        b[6] > (version == 1 ? 1 : 31) ||
+        (version == 3 && b[51] != 0)) {
       throw const FormatException('配置长度或保留字段错误');
     }
     final edges = <EdgeConfig>[];
@@ -357,20 +397,23 @@ class TouchpadConfig {
       );
     }
     final points = <PointConfig>[];
-    if (version == 2) {
+    if (version >= 2) {
       for (var n = 0; n < 4; n++) {
-        final i = 32 + n * 5;
-        if (b[i] > 1 || b[i + 1] >= PointAction.values.length || b[i + 2] > 1) {
+        final i = 32 + n * (version == 2 ? 5 : 4);
+        final radiusOffset = version == 2 ? 3 : 2;
+        if (b[i] > 1 ||
+            b[i + 1] >= PointAction.values.length ||
+            (version == 2 && b[i + 2] > 1)) {
           throw const FormatException('单点枚举无效');
         }
         points.add(
           PointConfig(
             enabled: b[i] == 1,
-            action: b[i + 2] == 1
+            action: version == 2 && b[i + 2] == 1
                 ? PointAction.values[b[i + 1]].opposite
                 : PointAction.values[b[i + 1]],
-            radius: b[i + 3],
-            step: b[i + 4],
+            radius: b[i + radiusOffset],
+            step: b[i + radiusOffset + 1],
             repeatWhileHeld: b[7] & (1 << (n + 4)) != 0,
             allowPointToEdge: b[6] & (1 << (n + 1)) != 0,
           ),
@@ -383,11 +426,14 @@ class TouchpadConfig {
       light: b[2],
       medium: b[3],
       strong: b[4],
+      wirelessLight: version == 3 ? b[48] : 60,
+      wirelessMedium: version == 3 ? b[49] : 80,
+      wirelessStrong: version == 3 ? b[50] : 100,
       rotation: b[5],
       sleepEnabled: b[6] & 1 != 0,
       sleepMs: ByteData.sublistView(b).getUint32(8, Endian.little),
       edges: edges,
-      points: version == 2 ? points : null,
+      points: version >= 2 ? points : null,
     );
     final error = c.validationError;
     if (error != null) throw FormatException(error);
@@ -398,6 +444,8 @@ class TouchpadConfig {
     0,
     (mask, entry) => mask | (entry.value.repeatWhileHeld ? 1 << entry.key : 0),
   );
+  bool get hasDefaultWirelessThresholds =>
+      wirelessLight == 60 && wirelessMedium == 80 && wirelessStrong == 100;
   int get pointRepeatMask => points.asMap().entries.fold(
     0,
     (mask, entry) => mask | (entry.value.repeatWhileHeld ? 1 << entry.key : 0),
@@ -432,6 +480,15 @@ class TouchpadConfig {
     light: mask & Capability.thresholds != 0 ? draft.light : light,
     medium: mask & Capability.thresholds != 0 ? draft.medium : medium,
     strong: mask & Capability.thresholds != 0 ? draft.strong : strong,
+    wirelessLight: mask & Capability.wirelessThresholds != 0
+        ? draft.wirelessLight
+        : wirelessLight,
+    wirelessMedium: mask & Capability.wirelessThresholds != 0
+        ? draft.wirelessMedium
+        : wirelessMedium,
+    wirelessStrong: mask & Capability.wirelessThresholds != 0
+        ? draft.wirelessStrong
+        : wirelessStrong,
     rotation: mask & Capability.rotation != 0 ? draft.rotation : rotation,
     sleepEnabled: mask & Capability.sleep != 0
         ? draft.sleepEnabled
@@ -465,6 +522,9 @@ class TouchpadConfig {
       pointToEdgeMask,
       ...points.expand((p) => p.bytes),
       ...edges.expand((e) => e.bytes),
+      wirelessLight,
+      wirelessMedium,
+      wirelessStrong,
     ];
     final m = merge(other, mask);
     final b = [
@@ -481,6 +541,9 @@ class TouchpadConfig {
       m.pointToEdgeMask,
       ...m.points.expand((p) => p.bytes),
       ...m.edges.expand((e) => e.bytes),
+      m.wirelessLight,
+      m.wirelessMedium,
+      m.wirelessStrong,
     ];
     return List.generate(a.length, (i) => a[i] == b[i]).every((v) => v);
   }

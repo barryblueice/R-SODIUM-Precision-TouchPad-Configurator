@@ -93,7 +93,7 @@ class DeviceInfo {
   final String firmware;
   final int configVersion;
   static DeviceInfo decode(Uint8List b) {
-    if (b.length != 12 || (b[10] != 1 && b[10] != 2) || b[11] != 0) {
+    if (b.length != 12 || b[10] < 1 || b[10] > 3 || b[11] != 0) {
       throw const FormatException('设备信息或配置结构版本不兼容');
     }
     final d = ByteData.sublistView(b);

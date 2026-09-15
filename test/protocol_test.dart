@@ -168,7 +168,7 @@ void main() {
         expect(() => TouchpadConfig.decode(bytes), throwsFormatException);
       }
       expect(() => TouchpadConfig.decode(Uint8List(31)), throwsFormatException);
-      final info = Packet.decode(fixtures['info_response']!).payload..[10] = 3;
+      final info = Packet.decode(fixtures['info_response']!).payload..[10] = 4;
       expect(() => DeviceInfo.decode(info), throwsFormatException);
     },
   );

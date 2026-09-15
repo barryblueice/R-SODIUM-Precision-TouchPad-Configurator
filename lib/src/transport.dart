@@ -115,7 +115,7 @@ class MockHidTransport extends HidTransport {
   MockHidTransport({
     this.legacy = false,
     this.capabilities = Capability.all,
-    this.configVersion = 2,
+    this.configVersion = 3,
   });
   final bool legacy;
   final int capabilities;

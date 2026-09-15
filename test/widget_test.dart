@@ -562,7 +562,8 @@ void main() {
       );
       expect(identical(oldScroll, edgeScroll), isFalse);
       expect(edgeScroll.position.pixels, 0);
-      expect(find.text('自定义三档阈值'), findsNothing);
+      expect(find.text('有线连接三档阈值'), findsNothing);
+      expect(find.text('无线连接三档阈值'), findsNothing);
 
       final ids = <int>{};
       for (final name in ['上边缘', '下边缘', '左边缘', '右边缘']) {

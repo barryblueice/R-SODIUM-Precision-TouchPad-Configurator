@@ -632,8 +632,8 @@ class _ConfiguratorState extends State<Configurator> {
       ),
       const SizedBox(height: 20),
       _card(
-        '自定义三档阈值',
-        '原始压力值，范围 1～255；轻 ≤ 中 ≤ 重。',
+        '有线连接三档阈值',
+        '有线连接下的原始压力值，范围 1～255；轻 ≤ 中 ≤ 重。',
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -676,6 +676,56 @@ class _ConfiguratorState extends State<Configurator> {
           ],
         ),
         capability: Capability.thresholds,
+      ),
+      const SizedBox(height: 20),
+      _card(
+        '无线连接三档阈值',
+        '无线连接下的压力值，范围 1～100；轻 ≤ 中 ≤ 重。',
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                NumberEditor(
+                  label: '无线轻档阈值',
+                  value: c.draft.wirelessLight,
+                  min: 1,
+                  max: 100,
+                  enabled: _editable,
+                  onChanged: (v) =>
+                      c.update(c.draft.copyWith(wirelessLight: v)),
+                ),
+                NumberEditor(
+                  label: '无线中档阈值',
+                  value: c.draft.wirelessMedium,
+                  min: 1,
+                  max: 100,
+                  enabled: _editable,
+                  onChanged: (v) =>
+                      c.update(c.draft.copyWith(wirelessMedium: v)),
+                ),
+                NumberEditor(
+                  label: '无线重档阈值',
+                  value: c.draft.wirelessStrong,
+                  min: 1,
+                  max: 100,
+                  enabled: _editable,
+                  onChanged: (v) =>
+                      c.update(c.draft.copyWith(wirelessStrong: v)),
+                ),
+              ],
+            ),
+            if (c.draft.wirelessLight > c.draft.wirelessMedium ||
+                c.draft.wirelessMedium > c.draft.wirelessStrong)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: _notice('请确保无线轻档 ≤ 中档 ≤ 重档。', error: true),
+              ),
+          ],
+        ),
+        capability: Capability.wirelessThresholds,
       ),
     ];
   }

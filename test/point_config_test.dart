@@ -207,7 +207,7 @@ void main() {
       Packet.decode(vector('point_info_response')).payload,
     );
     expect(info.configVersion, 2);
-    expect(info.capabilities, Capability.all);
+    expect(info.capabilities, Capability.v2);
     expect(
       config.encode(version: 2).sublist(12, 32),
       config
@@ -322,9 +322,9 @@ void main() {
       () => TouchpadConfig.decode(TouchpadConfig().encode(version: 2)),
       throwsFormatException,
     );
-    expect(() => TouchpadConfig().encode(version: 3), throwsFormatException);
+    expect(() => TouchpadConfig().encode(version: 4), throwsFormatException);
     expect(
-      () => TouchpadConfig.decode(Uint8List(52), version: 3),
+      () => TouchpadConfig.decode(Uint8List(52), version: 4),
       throwsFormatException,
     );
     expect(TouchpadConfig(points: []).validationError, isNotNull);

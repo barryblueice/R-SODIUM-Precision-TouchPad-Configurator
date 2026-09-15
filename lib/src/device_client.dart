@@ -119,6 +119,10 @@ class DeviceClient {
               config.pointToEdgeMask != 0)) {
         throw const FormatException('单点配置与固件能力不一致');
       }
+      if (capabilities & Capability.wirelessThresholds == 0 &&
+          !config.hasDefaultWirelessThresholds) {
+        throw const FormatException('无线阈值与固件能力不一致');
+      }
       known = capabilities;
       return config;
     }
