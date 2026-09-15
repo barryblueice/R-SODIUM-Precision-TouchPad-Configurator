@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/services.dart';
 
 import 'config.dart';
+import 'host_platform.dart';
 import 'protocol.dart';
 
 class HidDevice {
@@ -34,6 +35,7 @@ class HidException implements Exception {
 
 abstract class HidTransport {
   bool get isDemo => false;
+  bool get runsOnWindows11 => false;
   Future<List<HidDevice>> enumerate();
   Future<void> open(String id);
   Future<void> close();
@@ -44,6 +46,8 @@ abstract class HidTransport {
 }
 
 class WindowsHidTransport extends HidTransport {
+  @override
+  bool get runsOnWindows11 => isWindows11Host;
   static const channel = MethodChannel('technology.rsodium/hid');
   Future<T?> _call<T>(String method, [Map<String, Object>? args]) async {
     try {

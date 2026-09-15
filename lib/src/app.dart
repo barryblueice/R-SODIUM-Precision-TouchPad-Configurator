@@ -58,6 +58,7 @@ class _ConfiguratorState extends State<Configurator> {
   EdgeSide? side;
   static const titles = ['设备信息', '触觉与按压', '方向与休眠', '边缘滑动'];
   bool get _editable => c.connected && !c.busy;
+  bool get _hapticEditable => _editable && c.hapticSettingsAvailable;
   @override
   void initState() {
     super.initState();
@@ -455,6 +456,10 @@ class _ConfiguratorState extends State<Configurator> {
   );
 
   List<Widget> _hapticPage() => [
+    if (!c.hapticSettingsAvailable) ...[
+      _notice('Windows 11 下触觉强度与按压触发设置将不可用，避免与原生系统偏好冲突。'),
+      const SizedBox(height: 16),
+    ],
     _card(
       '触觉反馈',
       '强度为 0 时关闭触觉反馈。',
@@ -468,6 +473,7 @@ class _ConfiguratorState extends State<Configurator> {
             100,
             (v) => c.update(c.draft.copyWith(intensity: v)),
             suffix: '%',
+            enabled: c.hapticSettingsAvailable,
           ),
           Wrap(
             spacing: 8,
@@ -476,7 +482,7 @@ class _ConfiguratorState extends State<Configurator> {
                 ChoiceChip(
                   label: Text(v == 0 ? '关闭' : '$v'),
                   selected: c.draft.intensity == v,
-                  onSelected: !_editable
+                  onSelected: !_hapticEditable
                       ? null
                       : (_) => c.update(c.draft.copyWith(intensity: v)),
                 ),
@@ -501,7 +507,7 @@ class _ConfiguratorState extends State<Configurator> {
               ButtonSegment(value: 3, label: Text('重')),
             ],
             selected: {c.draft.pressLevel},
-            onSelectionChanged: !_editable
+            onSelectionChanged: !_hapticEditable
                 ? null
                 : (v) => c.update(c.draft.copyWith(pressLevel: v.first)),
           ),

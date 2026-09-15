@@ -7,12 +7,15 @@ import 'device_client.dart';
 import 'transport.dart';
 
 class AppController extends ChangeNotifier {
-  AppController({HidTransport? transport})
+  AppController({HidTransport? transport, bool? isWindows11})
     : transport = transport ?? WindowsHidTransport() {
     client = DeviceClient(this.transport);
+    this.isWindows11 = isWindows11 ?? this.transport.runsOnWindows11;
   }
   HidTransport transport;
   late DeviceClient client;
+  late final bool isWindows11;
+  static const _hapticMask = Capability.intensity | Capability.pressLevel;
   List<HidDevice> devices = [];
   HidDevice? selected;
   TouchpadConfig draft = TouchpadConfig();
@@ -32,17 +35,20 @@ class AppController extends ChangeNotifier {
 
   bool get demo => transport.isDemo;
   int get capabilities => connected ? client.capabilities : 0;
+  bool get hapticSettingsAvailable => !isWindows11;
+  int get editableCapabilities =>
+      isWindows11 ? capabilities & ~_hapticMask : capabilities;
   bool supports(int bit) => capabilities & bit != 0;
   bool knows(int bit) => connected && client.known & bit != 0;
   bool get writableChanges =>
-      current != null && !current!.same(draft, capabilities);
+      current != null && !current!.same(draft, editableCapabilities);
   bool get unsupportedChanges =>
       current != null && !current!.merge(draft, capabilities).same(draft);
   bool get canApply =>
       connected &&
       !busy &&
       writableChanges &&
-      current!.merge(draft, capabilities).validationError == null;
+      current!.merge(draft, editableCapabilities).validationError == null;
 
   void emit() {
     if (!_disposed) notifyListeners();
@@ -97,7 +103,7 @@ class AppController extends ChangeNotifier {
 
   void update(TouchpadConfig value) {
     if (!connected || busy) return;
-    draft = value;
+    draft = isWindows11 ? value.merge(draft, _hapticMask) : value;
     edited = true;
     emit();
   }
@@ -188,10 +194,16 @@ class AppController extends ChangeNotifier {
     busy = true;
     error = null;
     emit();
-    final target = current!.merge(draft, capabilities);
     final targetCapabilities = capabilities;
     try {
-      final result = await client.apply(draft, current!);
+      if (isWindows11) {
+        // RSTP writes the complete configuration. Keep disabled haptic fields
+        // fresh when saving another page after Windows has changed the device.
+        current = await client.readConfig();
+        draft = draft.merge(current!, _hapticMask);
+      }
+      final target = current!.merge(draft, editableCapabilities);
+      final result = await client.apply(target, current!);
       message = result.message;
       if (result.reconnect) {
         _pendingReconnect = target;

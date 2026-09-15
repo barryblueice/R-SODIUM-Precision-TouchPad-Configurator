@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'dart:ui' show SemanticsAction;
 
 import 'package:flutter/material.dart';
@@ -75,13 +74,17 @@ void main() {
     WidgetTester tester, {
     bool connected = false,
     bool legacy = false,
+    bool isWindows11 = false,
     Size size = const Size(1280, 900),
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final c = AppController(transport: MockHidTransport(legacy: legacy));
+    final c = AppController(
+      transport: MockHidTransport(legacy: legacy),
+      isWindows11: isWindows11,
+    );
     addTearDown(c.dispose);
     if (connected) {
       await c.scan();
@@ -92,6 +95,51 @@ void main() {
     return c;
   }
 
+  testWidgets(
+    'Windows 11 disables intensity and pressure but keeps thresholds editable',
+    (tester) async {
+      final c = await show(tester, connected: true, isWindows11: true);
+      expect(find.text('Windows 11 下触觉强度与按压触发设置不可用。'), findsOneWidget);
+      expect(
+        tester.widget<Slider>(find.byType(Slider).first).onChanged,
+        isNull,
+      );
+      for (final chip in tester.widgetList<ChoiceChip>(
+        find.byType(ChoiceChip),
+      )) {
+        expect(chip.onSelected, isNull);
+      }
+      expect(
+        tester
+            .widget<SegmentedButton<int>>(find.byType(SegmentedButton<int>))
+            .onSelectionChanged,
+        isNull,
+      );
+      for (final field in tester.widgetList<TextField>(
+        find.byType(TextField),
+      )) {
+        expect(field.enabled, isTrue);
+      }
+      await tester.ensureVisible(find.byType(TextField).first);
+      await tester.enterText(find.byType(TextField).first, '90');
+      await tester.pumpAndSettle();
+      expect(c.draft.light, 90);
+      expect(c.canApply, isTrue);
+      await tester.tap(find.text('边缘滑动').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, '上边缘'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.widgetWithText(SwitchListTile, '启用此边缘'),
+            )
+            .onChanged,
+        isNotNull,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets('Disconnected page disables settings and the device selector', (
     tester,
   ) async {

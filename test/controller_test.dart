@@ -28,6 +28,49 @@ class CapabilityLossTransport extends MockHidTransport {
 
 void main() {
   test(
+    'Windows 11 blocks shared haptic edits while allowing custom thresholds',
+    () async {
+      final mock = MockHidTransport();
+      final c = AppController(transport: mock, isWindows11: true);
+      addTearDown(c.dispose);
+      await c.scan();
+      c.update(c.draft.copyWith(intensity: 75, pressLevel: 1));
+      expect(c.draft.intensity, 63);
+      expect(c.draft.pressLevel, 2);
+      expect(c.canApply, isFalse);
+      await c.apply();
+      expect(mock.writes, 0);
+      c.update(c.draft.copyWith(light: 90));
+      expect(c.canApply, isTrue);
+      // Windows changes these after the Manager initially read the device.
+      mock.config = mock.config.copyWith(intensity: 25, pressLevel: 3);
+      await c.apply();
+      expect(c.error, isNull);
+      expect(mock.config.light, 90);
+      expect(mock.config.intensity, 25);
+      expect(mock.config.pressLevel, 3);
+      expect(c.draft.same(c.current!), isTrue);
+    },
+  );
+
+  test(
+    'Windows 11 ignores stale locked values when saving other settings',
+    () async {
+      final mock = MockHidTransport();
+      final c = AppController(transport: mock, isWindows11: true);
+      addTearDown(c.dispose);
+      await c.scan();
+      c.draft = c.draft.copyWith(intensity: 75, pressLevel: 1);
+      expect(c.canApply, isFalse);
+      c.draft = c.draft.copyWith(rotation: 1);
+      await c.apply();
+      expect(c.error, isNull);
+      expect(mock.config.intensity, 63);
+      expect(mock.config.pressLevel, 2);
+      expect(mock.config.rotation, 1);
+    },
+  );
+  test(
     'Original RSTP preserves arrow and repeat drafts without writing them',
     () async {
       final mock = MockHidTransport(capabilities: 0x3f);
