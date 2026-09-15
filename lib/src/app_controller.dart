@@ -17,6 +17,7 @@ class AppController extends ChangeNotifier {
   late final bool isWindows11;
   static const _hapticMask = Capability.intensity | Capability.pressLevel;
   List<HidDevice> devices = [];
+  List<HidDevice> get touchpads => devices.where((d) => !d.isReceiver).toList();
   HidDevice? selected;
   TouchpadConfig draft = TouchpadConfig();
   TouchpadConfig? current;
@@ -103,7 +104,7 @@ class AppController extends ChangeNotifier {
           await client.close();
         }
       }
-      final candidates = devices
+      final candidates = touchpads
           .where((d) => !_dfuWaitingIds.contains(d.id))
           .toList();
       if (!connected &&
@@ -146,7 +147,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> connect(HidDevice device) async {
-    if (busy || _disposed) return;
+    if (busy || _disposed || device.isReceiver) return;
     _epoch++;
     busy = true;
     error = null;
@@ -356,7 +357,7 @@ class AppController extends ChangeNotifier {
       discoveryError = e.toString();
     }
     busy = false;
-    if (enabled && devices.isNotEmpty) await connect(devices.first);
+    if (enabled && touchpads.isNotEmpty) await connect(touchpads.first);
     emit();
   }
 

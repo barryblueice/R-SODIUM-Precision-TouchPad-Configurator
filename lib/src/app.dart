@@ -238,7 +238,12 @@ class _ConfiguratorState extends State<Configurator> {
   }
 
   String _deviceLabel(HidDevice device) {
-    final index = c.devices.indexWhere((d) => d.id == device.id) + 1;
+    final index =
+        c.devices
+            .where((d) => d.isReceiver == device.isReceiver)
+            .toList()
+            .indexWhere((d) => d.id == device.id) +
+        1;
     final serial = device.serial;
     final suffix = serial.length > 6
         ? serial.substring(serial.length - 6)
@@ -247,7 +252,8 @@ class _ConfiguratorState extends State<Configurator> {
   }
 
   Widget _deviceSelector() {
-    final available = c.devices.any((d) => d.id == c.selected?.id);
+    final devices = c.touchpads;
+    final available = devices.any((d) => d.id == c.selected?.id);
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -291,7 +297,7 @@ class _ConfiguratorState extends State<Configurator> {
               ),
             ),
             items: [
-              for (final d in c.devices)
+              for (final d in devices)
                 DropdownMenuItem(
                   value: d.id,
                   child: Tooltip(
@@ -304,11 +310,11 @@ class _ConfiguratorState extends State<Configurator> {
                   ),
                 ),
             ],
-            onChanged: c.busy || c.devices.isEmpty
+            onChanged: c.busy || devices.isEmpty
                 ? null
                 : (id) {
                     if (id != null) {
-                      c.connect(c.devices.firstWhere((d) => d.id == id));
+                      c.connect(devices.firstWhere((d) => d.id == id));
                     }
                   },
           ),

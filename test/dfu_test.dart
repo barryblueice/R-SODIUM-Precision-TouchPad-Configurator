@@ -228,8 +228,8 @@ void main() {
         HidDevice(id: '$pid', name: 'DFU', productId: pid, dfuPath: 'dfu-$pid'),
       ];
       await c.scan();
-      expect(c.canEnterDfu, isTrue);
-      await c.enterDfu();
+      expect(c.canEnterDfuFor(t.attached.single), isTrue);
+      await c.enterDfu(t.attached.single);
       expect(t.targets.last, '$pid');
     }
   });
@@ -245,6 +245,34 @@ void main() {
     name: 'Touchpad',
     dfuPath: 'touchpad-path',
   );
+
+  test('Receiver discovery never selects a configuration target or replaces its draft', () async {
+    final t = DfuTransport()..attached = [receiver];
+    final c = await connect(t);
+    expect(c.devices.single, receiver);
+    expect(c.touchpads, isEmpty);
+    expect(c.selected, isNull);
+    expect(t.opens, 0);
+    expect(c.canEnterDfuFor(receiver), isTrue);
+    await c.connect(receiver);
+    expect(c.selected, isNull);
+    t.attached = [receiver, touchpad];
+    await c.scan();
+    expect(c.selected!.id, touchpad.id);
+    c.update(c.draft.copyWith(intensity: 86));
+    final draft = c.draft;
+    await c.connect(receiver);
+    expect(c.selected!.id, touchpad.id);
+    expect(c.draft, same(draft));
+    t.attached = [receiver];
+    await c.scan();
+    expect(c.selected!.id, touchpad.id);
+    expect(c.connected, isFalse);
+    expect(c.draft, same(draft));
+    await c.enterDfu(receiver);
+    expect(t.targets, ['R']);
+    expect(t.writes, 0);
+  });
 
   test(
     'Receiver DFU preserves the separately connected touchpad and its draft',
@@ -319,14 +347,34 @@ void main() {
       await c.scan();
       await tester.pumpAndSettle();
       expect(c.connected, isFalse); // Receiver has no configurator protocol.
+      expect(c.selected, isNull);
       expect(find.text('接收器 · 已连接'), findsOneWidget);
-      expect(find.text('接收器 1'), findsOneWidget);
+      expect(find.text('接收器 1'), findsNothing);
+      final selector = find.byType(DropdownButtonFormField<String>);
+      expect(
+        tester
+            .widget<DropdownButton<String>>(find.byType(DropdownButton<String>))
+            .items,
+        isEmpty,
+      );
+      expect(
+        tester.widget<DropdownButtonFormField<String>>(selector).onChanged,
+        isNull,
+      );
       expect(tester.widget<FilledButton>(receiverButton).onPressed, isNotNull);
       expect(tester.widget<FilledButton>(touchpadButton).onPressed, isNull);
       t.attached = [touchpad, receiver];
       await c.scan();
-      await c.connect(touchpad);
       await tester.pumpAndSettle();
+      expect(c.selected!.id, touchpad.id);
+      expect(
+        tester
+            .widget<DropdownButton<String>>(find.byType(DropdownButton<String>))
+            .items!
+            .map((item) => item.value),
+        [touchpad.id],
+      );
+      expect(find.text('触摸板 1'), findsOneWidget);
       expect(find.text('触摸板 · 已连接'), findsOneWidget);
       await tester.ensureVisible(receiverButton);
       await tester.tap(receiverButton);
