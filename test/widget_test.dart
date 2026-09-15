@@ -199,6 +199,43 @@ void main() {
     final c = await show(tester, connected: true, size: const Size(1280, 1100));
     await tester.tap(find.text('边缘滑动').first);
     await tester.pumpAndSettle();
+    expect(
+      tester.widget<TouchpadDiagram>(find.byType(TouchpadDiagram)).selected,
+      isNull,
+    );
+    expect(find.text('边缘设置'), findsOneWidget);
+    expect(find.text('请先选择边缘区域'), findsOneWidget);
+    for (final chip in tester.widgetList<ChoiceChip>(find.byType(ChoiceChip))) {
+      expect(chip.selected, isFalse);
+      expect(chip.onSelected, isNotNull);
+    }
+    for (final toggle in tester.widgetList<SwitchListTile>(
+      find.byType(SwitchListTile),
+    )) {
+      expect(toggle.onChanged, isNull);
+    }
+    expect(
+      tester
+          .widget<DropdownButtonFormField<EdgeAction>>(
+            find.byType(DropdownButtonFormField<EdgeAction>),
+          )
+          .onChanged,
+      isNull,
+    );
+    expect(
+      tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).onChanged,
+      isNull,
+    );
+    for (final slider in tester.widgetList<Slider>(find.byType(Slider))) {
+      expect(slider.onChanged, isNull);
+    }
+    expect(c.edited, isFalse);
+    await tester.tap(find.widgetWithText(ChoiceChip, '左边缘'));
+    await tester.pumpAndSettle();
+    expect(find.text('左边缘设置'), findsOneWidget);
+    for (final slider in tester.widgetList<Slider>(find.byType(Slider))) {
+      expect(slider.onChanged, isNotNull);
+    }
     await tester.ensureVisible(find.text('启用此边缘'));
     await tester.tap(find.text('启用此边缘'));
     await tester.pumpAndSettle();
@@ -290,6 +327,8 @@ void main() {
   ) async {
     final c = await show(tester, connected: true, legacy: true);
     await tester.tap(find.text('边缘滑动').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, '左边缘'));
     await tester.pumpAndSettle();
     final heldAction = find.widgetWithText(CheckboxListTile, '手指不抬起继续动作');
     await tester.ensureVisible(heldAction);

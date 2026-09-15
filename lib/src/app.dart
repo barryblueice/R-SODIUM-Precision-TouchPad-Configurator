@@ -55,7 +55,7 @@ class Configurator extends StatefulWidget {
 class _ConfiguratorState extends State<Configurator> {
   late final AppController c;
   int page = 1;
-  EdgeSide side = EdgeSide.left;
+  EdgeSide? side;
   static const titles = ['设备信息', '触觉与按压', '方向与休眠', '边缘滑动'];
   bool get _editable => c.connected && !c.busy;
   @override
@@ -474,13 +474,7 @@ class _ConfiguratorState extends State<Configurator> {
             children: [
               for (final v in [0, 25, 63, 75, 100])
                 ChoiceChip(
-                  label: Text(
-                    v == 0
-                        ? '关闭'
-                        : v == 63
-                        ? '默认 63'
-                        : '$v',
-                  ),
+                  label: Text(v == 0 ? '关闭' : '$v'),
                   selected: c.draft.intensity == v,
                   onSelected: !_editable
                       ? null
@@ -655,10 +649,15 @@ class _ConfiguratorState extends State<Configurator> {
     ),
   ];
   List<Widget> _edgePage() {
-    final e = c.draft.edges[side.index];
+    final selectedSide = side;
+    final edgeEditable = _editable && selectedSide != null;
+    final e = selectedSide == null
+        ? const EdgeConfig()
+        : c.draft.edges[selectedSide.index];
     void change(EdgeConfig value) {
+      if (!edgeEditable) return;
       final edges = [...c.draft.edges];
-      edges[side.index] = value;
+      edges[selectedSide.index] = value;
       c.update(c.draft.copyWith(edges: edges));
     }
 
@@ -672,7 +671,7 @@ class _ConfiguratorState extends State<Configurator> {
               height: 220,
               child: Center(
                 child: SizedBox(
-                  width: 380,
+                  width: 300,
                   height: 220,
                   child: TouchpadDiagram(
                     edges: c.draft.edges,
@@ -705,8 +704,8 @@ class _ConfiguratorState extends State<Configurator> {
       ),
       const SizedBox(height: 20),
       _card(
-        '${edgeNames[side.index]}设置',
-        e.direction(side),
+        selectedSide == null ? '边缘设置' : '${edgeNames[selectedSide.index]}设置',
+        selectedSide == null ? '请先选择边缘区域' : e.direction(selectedSide),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -714,7 +713,7 @@ class _ConfiguratorState extends State<Configurator> {
               contentPadding: EdgeInsets.zero,
               title: const Text('启用此边缘'),
               value: e.enabled,
-              onChanged: !_editable
+              onChanged: !edgeEditable
                   ? null
                   : (v) => change(
                       e.copyWith(
@@ -727,7 +726,7 @@ class _ConfiguratorState extends State<Configurator> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<EdgeAction>(
-              key: ValueKey('${side.name}-${e.action.name}'),
+              key: ValueKey('${selectedSide?.name}-${e.action.name}'),
               initialValue: e.action,
               decoration: const InputDecoration(labelText: '绑定功能'),
               items: [
@@ -737,7 +736,7 @@ class _ConfiguratorState extends State<Configurator> {
                     child: Text(actionNames[action.index]),
                   ),
               ],
-              onChanged: !_editable
+              onChanged: !edgeEditable
                   ? null
                   : (v) {
                       if (v != null) {
@@ -751,9 +750,11 @@ class _ConfiguratorState extends State<Configurator> {
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: const Text('反转滑动方向'),
-              subtitle: Text(e.direction(side)),
+              subtitle: selectedSide == null
+                  ? null
+                  : Text(e.direction(selectedSide)),
               value: e.reversed,
-              onChanged: !_editable
+              onChanged: !edgeEditable
                   ? null
                   : (v) => change(e.copyWith(reversed: v)),
             ),
@@ -777,7 +778,7 @@ class _ConfiguratorState extends State<Configurator> {
                     : '随着手指移到触控板边缘外，继续执行动作',
               ),
               value: e.repeatWhileHeld,
-              onChanged: !_editable
+              onChanged: !edgeEditable
                   ? null
                   : (v) => change(e.copyWith(repeatWhileHeld: v)),
             ),
@@ -785,9 +786,10 @@ class _ConfiguratorState extends State<Configurator> {
               '边缘宽度',
               e.width,
               1,
-              side.maxWidthPercent,
+              selectedSide?.maxWidthPercent ?? EdgeSide.left.maxWidthPercent,
               (v) => change(e.copyWith(width: v)),
               suffix: '%',
+              enabled: edgeEditable,
             ),
             _slider(
               '触发步距',
@@ -796,21 +798,24 @@ class _ConfiguratorState extends State<Configurator> {
               10,
               (v) => change(e.copyWith(step: v)),
               suffix: '%',
+              enabled: edgeEditable,
             ),
             const Text(
               '宽度按垂直于该边的尺寸计算；步距按沿边尺寸计算。达到触发步距后，是否继续执行由上方复选框决定。',
               style: TextStyle(fontSize: 12, height: 1.7),
             ),
-            _readback(
-              Capability.edges,
-              c.current == null
-                  ? ''
-                  : '${actionNames[c.current!.edges[side.index].action.index]} · ${c.current!.edges[side.index].direction(side)}',
-            ),
-            _readback(
-              Capability.edgeRepeat,
-              '手指不抬起继续动作：${c.current?.edges[side.index].repeatWhileHeld == true ? '已开启' : '已关闭'}',
-            ),
+            if (selectedSide != null)
+              _readback(
+                Capability.edges,
+                c.current == null
+                    ? ''
+                    : '${actionNames[c.current!.edges[selectedSide.index].action.index]} · ${c.current!.edges[selectedSide.index].direction(selectedSide)}',
+              ),
+            if (selectedSide != null)
+              _readback(
+                Capability.edgeRepeat,
+                '手指不抬起继续动作：${c.current?.edges[selectedSide.index].repeatWhileHeld == true ? '已开启' : '已关闭'}',
+              ),
           ],
         ),
       ),
@@ -826,6 +831,7 @@ class _ConfiguratorState extends State<Configurator> {
     int max,
     ValueChanged<int> onChanged, {
     String suffix = '',
+    bool enabled = true,
   }) => Column(
     children: [
       Row(
@@ -836,7 +842,9 @@ class _ConfiguratorState extends State<Configurator> {
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,
-              color: Theme.of(context).colorScheme.primary,
+              color: enabled
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).disabledColor,
             ),
           ),
         ],
@@ -852,7 +860,9 @@ class _ConfiguratorState extends State<Configurator> {
           max: max.toDouble(),
           divisions: max - min,
           label: '$value$suffix',
-          onChanged: !_editable ? null : (v) => onChanged(v.round()),
+          onChanged: !_editable || !enabled
+              ? null
+              : (v) => onChanged(v.round()),
         ),
       ),
     ],
