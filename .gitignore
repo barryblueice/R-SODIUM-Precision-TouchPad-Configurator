@@ -14,6 +14,9 @@
 # 文档保留为本地文件，不纳入版本控制
 /docs/
 
+# 测试保留为本地文件，不纳入版本控制
+/test/
+
 # Windows Flutter 临时文件
 /windows/flutter/ephemeral/
 
@@ -39,4 +42,4 @@
 Thumbs.db
 Desktop.ini
 
-# 本项目是应用：保留 pubspec.lock、.metadata、源码、测试和 Windows manifest。
+# 本项目是应用：保留 pubspec.lock、.metadata、源码和 Windows manifest。

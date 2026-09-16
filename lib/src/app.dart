@@ -55,12 +55,13 @@ class Configurator extends StatefulWidget {
 class _ConfiguratorState extends State<Configurator> {
   late final AppController c;
   int page = 1;
-  EdgeSide? side;
-  PointPosition? point;
+  EdgeSide? _selectedEdge;
+  PointPosition? _selectedPoint;
   final Map<bool, String> _dfuSelections = {};
   static const titles = ['设备信息', '触觉与按压', '方向与休眠', '边缘手势', '单点手势'];
   bool get _editable => c.connected && !c.busy;
-  bool get _selectedPresent => c.devices.any((d) => d.id == c.selected?.id);
+  bool get _selectedDevicePresent =>
+      c.devices.any((d) => d.id == c.selected?.id);
   bool get _hapticEditable => _editable && c.hapticSettingsAvailable;
   @override
   void initState() {
@@ -396,10 +397,10 @@ class _ConfiguratorState extends State<Configurator> {
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _detail('名称', _selectedPresent ? c.selected!.name : '未连接'),
-          _detail('连接', _selectedPresent ? 'USB' : '未连接'),
+          _detail('名称', _selectedDevicePresent ? c.selected!.name : '未连接'),
+          _detail('连接', _selectedDevicePresent ? 'USB' : '未连接'),
           _detail('设备 ID', c.selected?.usbId ?? '—'),
-          _detail('序列号', _selectedPresent ? c.selected!.serial : '—'),
+          _detail('序列号', _selectedDevicePresent ? c.selected!.serial : '—'),
           _detail(
             '固件版本',
             c.connected && c.client.modern ? c.client.firmware : '未提供',
@@ -804,17 +805,17 @@ class _ConfiguratorState extends State<Configurator> {
     ),
   ];
   List<Widget> _edgePage() {
-    final selectedSide = side;
-    final edgeEditable = _editable && selectedSide != null;
-    final e = selectedSide == null
+    final selectedEdge = _selectedEdge;
+    final edgeEditable = _editable && selectedEdge != null;
+    final edgeConfig = selectedEdge == null
         ? const EdgeConfig()
-        : c.draft.edges[selectedSide.index];
-    final edgeSettingsEditable = edgeEditable && e.enabled;
-    void change(EdgeConfig value) {
+        : c.draft.edges[selectedEdge.index];
+    final edgeSettingsEditable = edgeEditable && edgeConfig.enabled;
+    void updateEdgeConfig(EdgeConfig updatedEdgeConfig) {
       if (!edgeEditable) return;
-      final edges = [...c.draft.edges];
-      edges[selectedSide.index] = value;
-      c.update(c.draft.copyWith(edges: edges));
+      final updatedEdges = [...c.draft.edges];
+      updatedEdges[selectedEdge.index] = updatedEdgeConfig;
+      c.update(c.draft.copyWith(edges: updatedEdges));
     }
 
     return [
@@ -831,9 +832,9 @@ class _ConfiguratorState extends State<Configurator> {
                   height: 220,
                   child: TouchpadDiagram(
                     edges: c.draft.edges,
-                    selected: side,
-                    onSelect: _editable
-                        ? (s) => setState(() => side = s)
+                    selectedEdge: selectedEdge,
+                    onEdgeSelected: _editable
+                        ? (edgeSide) => setState(() => _selectedEdge = edgeSide)
                         : null,
                   ),
                 ),
@@ -844,12 +845,12 @@ class _ConfiguratorState extends State<Configurator> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final s in EdgeSide.values)
+                for (final edgeSide in EdgeSide.values)
                   ChoiceChip(
-                    label: Text(edgeNames[s.index]),
-                    selected: side == s,
+                    label: Text(edgeNames[edgeSide.index]),
+                    selected: selectedEdge == edgeSide,
                     onSelected: _editable
-                        ? (_) => setState(() => side = s)
+                        ? (_) => setState(() => _selectedEdge = edgeSide)
                         : null,
                   ),
               ],
@@ -860,30 +861,30 @@ class _ConfiguratorState extends State<Configurator> {
       ),
       const SizedBox(height: 20),
       _card(
-        selectedSide == null ? '边缘设置' : '${edgeNames[selectedSide.index]}设置',
-        selectedSide == null ? '请先选择边缘区域' : e.direction(selectedSide),
+        selectedEdge == null ? '边缘设置' : '${edgeNames[selectedEdge.index]}设置',
+        selectedEdge == null ? '请先选择边缘区域' : '',
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: const Text('启用此边缘'),
-              value: e.enabled,
+              value: edgeConfig.enabled,
               onChanged: !edgeEditable
                   ? null
-                  : (v) => change(
-                      e.copyWith(
-                        enabled: v,
-                        action: v && e.action == EdgeAction.off
+                  : (value) => updateEdgeConfig(
+                      edgeConfig.copyWith(
+                        enabled: value,
+                        action: value && edgeConfig.action == EdgeAction.off
                             ? EdgeAction.volume
-                            : e.action,
+                            : edgeConfig.action,
                       ),
                     ),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<EdgeAction>(
-              key: ValueKey('${selectedSide?.name}-${e.action.name}'),
-              initialValue: e.action,
+              key: ValueKey('${selectedEdge?.name}-${edgeConfig.action.name}'),
+              initialValue: edgeConfig.action,
               decoration: const InputDecoration(labelText: '绑定功能'),
               items: [
                 for (final action in EdgeAction.values)
@@ -894,10 +895,13 @@ class _ConfiguratorState extends State<Configurator> {
               ],
               onChanged: !edgeSettingsEditable
                   ? null
-                  : (v) {
-                      if (v != null) {
-                        change(
-                          e.copyWith(action: v, enabled: v != EdgeAction.off),
+                  : (value) {
+                      if (value != null) {
+                        updateEdgeConfig(
+                          edgeConfig.copyWith(
+                            action: value,
+                            enabled: value != EdgeAction.off,
+                          ),
                         );
                       }
                     },
@@ -905,41 +909,44 @@ class _ConfiguratorState extends State<Configurator> {
             const SizedBox(height: 12),
             _slider(
               '边缘宽度',
-              e.width,
+              edgeConfig.width,
               1,
-              selectedSide?.maxWidthPercent ?? EdgeSide.left.maxWidthPercent,
-              (v) => change(e.copyWith(width: v)),
+              selectedEdge?.maxWidthPercent ?? EdgeSide.left.maxWidthPercent,
+              (value) => updateEdgeConfig(edgeConfig.copyWith(width: value)),
               suffix: '%',
               enabled: edgeSettingsEditable,
             ),
             _slider(
               '触发步距',
-              e.step,
+              edgeConfig.step,
               1,
               10,
-              (v) => change(e.copyWith(step: v)),
+              (value) => updateEdgeConfig(edgeConfig.copyWith(step: value)),
               suffix: '%',
               enabled: edgeSettingsEditable,
             ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: const Text('反转滑动方向'),
-              subtitle: selectedSide == null
+              subtitle: selectedEdge == null
                   ? null
-                  : Text(e.direction(selectedSide)),
-              value: e.reversed,
+                  : Text(edgeConfig.direction(selectedEdge)),
+              value: edgeConfig.reversed,
               onChanged: !edgeSettingsEditable
                   ? null
-                  : (v) => change(e.copyWith(reversed: v)),
+                  : (value) =>
+                        updateEdgeConfig(edgeConfig.copyWith(reversed: value)),
             ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: const Text('手指不抬起继续动作'),
               subtitle: Text('随着手指移到触控板边缘外，继续执行动作'),
-              value: e.repeatWhileHeld,
+              value: edgeConfig.repeatWhileHeld,
               onChanged: !edgeSettingsEditable
                   ? null
-                  : (v) => change(e.copyWith(repeatWhileHeld: v)),
+                  : (value) => updateEdgeConfig(
+                      edgeConfig.copyWith(repeatWhileHeld: value),
+                    ),
             ),
           ],
         ),
@@ -949,17 +956,17 @@ class _ConfiguratorState extends State<Configurator> {
   }
 
   List<Widget> _pointPage() {
-    final selected = point;
-    final editable = _editable && selected != null;
-    final p = selected == null
+    final selectedPoint = _selectedPoint;
+    final pointEditable = _editable && selectedPoint != null;
+    final pointConfig = selectedPoint == null
         ? const PointConfig()
-        : c.draft.points[selected.index];
-    final pointSettingsEditable = editable && p.enabled;
-    void change(PointConfig value) {
-      if (!editable) return;
-      final points = [...c.draft.points];
-      points[selected.index] = value;
-      c.update(c.draft.copyWith(points: points));
+        : c.draft.points[selectedPoint.index];
+    final pointSettingsEditable = pointEditable && pointConfig.enabled;
+    void updatePointConfig(PointConfig updatedPointConfig) {
+      if (!pointEditable) return;
+      final updatedPoints = [...c.draft.points];
+      updatedPoints[selectedPoint.index] = updatedPointConfig;
+      c.update(c.draft.copyWith(points: updatedPoints));
     }
 
     return [
@@ -976,9 +983,10 @@ class _ConfiguratorState extends State<Configurator> {
                   height: 220,
                   child: PointDiagram(
                     points: c.draft.points,
-                    selected: selected,
-                    onSelect: _editable
-                        ? (value) => setState(() => point = value)
+                    selectedPoint: selectedPoint,
+                    onPointSelected: _editable
+                        ? (pointPosition) =>
+                              setState(() => _selectedPoint = pointPosition)
                         : null,
                   ),
                 ),
@@ -992,9 +1000,9 @@ class _ConfiguratorState extends State<Configurator> {
                 for (final position in PointPosition.values)
                   ChoiceChip(
                     label: Text(pointNames[position.index]),
-                    selected: selected == position,
+                    selected: selectedPoint == position,
                     onSelected: _editable
-                        ? (_) => setState(() => point = position)
+                        ? (_) => setState(() => _selectedPoint = position)
                         : null,
                   ),
               ],
@@ -1005,35 +1013,37 @@ class _ConfiguratorState extends State<Configurator> {
       ),
       const SizedBox(height: 20),
       _card(
-        selected == null ? '单点设置' : '${pointNames[selected.index]}设置',
-        selected == null ? '请先选择焦点区域' : '实际动作：${p.description}',
+        selectedPoint == null ? '单点设置' : '${pointNames[selectedPoint.index]}设置',
+        selectedPoint == null ? '请先选择焦点区域' : '',
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: const Text('启用此焦点'),
-              value: p.enabled,
-              onChanged: !editable
+              value: pointConfig.enabled,
+              onChanged: !pointEditable
                   ? null
-                  : (value) => change(
-                      p.copyWith(
+                  : (value) => updatePointConfig(
+                      pointConfig.copyWith(
                         enabled: value,
-                        action: value && p.action == PointAction.off
+                        action: value && pointConfig.action == PointAction.off
                             ? PointAction.volumeUp
-                            : p.action,
+                            : pointConfig.action,
                       ),
                     ),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<PointAction>(
-              key: ValueKey('point-${selected?.name}-${p.action.name}'),
-              initialValue: p.action,
+              key: ValueKey(
+                'point-${selectedPoint?.name}-${pointConfig.action.name}',
+              ),
+              initialValue: pointConfig.action,
               isExpanded: true,
               decoration: InputDecoration(
                 labelText: '绑定功能',
                 helperText:
-                    p.action.isFunctionKey &&
+                    pointConfig.action.isFunctionKey &&
                         c.capabilities & Capability.pointFunctionKeys == 0
                     ? '当前设备不支持此功能键，此点设置仅保留为预览。'
                     : null,
@@ -1050,8 +1060,8 @@ class _ConfiguratorState extends State<Configurator> {
                   ? null
                   : (value) {
                       if (value != null) {
-                        change(
-                          p.copyWith(
+                        updatePointConfig(
+                          pointConfig.copyWith(
                             action: value,
                             enabled: value != PointAction.off,
                           ),
@@ -1062,19 +1072,19 @@ class _ConfiguratorState extends State<Configurator> {
             const SizedBox(height: 12),
             _slider(
               '区域半径',
-              p.radius,
+              pointConfig.radius,
               1,
               30,
-              (value) => change(p.copyWith(radius: value)),
+              (value) => updatePointConfig(pointConfig.copyWith(radius: value)),
               suffix: '%',
               enabled: pointSettingsEditable,
             ),
             _slider(
               '触发步距',
-              p.step,
+              pointConfig.step,
               1,
               10,
-              (value) => change(p.copyWith(step: value)),
+              (value) => updatePointConfig(pointConfig.copyWith(step: value)),
               suffix: '%',
               enabled: pointSettingsEditable,
             ),
@@ -1082,19 +1092,23 @@ class _ConfiguratorState extends State<Configurator> {
               contentPadding: EdgeInsets.zero,
               title: const Text('手指不抬起继续动作'),
               subtitle: const Text('重复当前单点动作；转为滑动后进入边缘手势。'),
-              value: p.repeatWhileHeld,
+              value: pointConfig.repeatWhileHeld,
               onChanged: !pointSettingsEditable
                   ? null
-                  : (value) => change(p.copyWith(repeatWhileHeld: value)),
+                  : (value) => updatePointConfig(
+                      pointConfig.copyWith(repeatWhileHeld: value),
+                    ),
             ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: const Text('允许点转为滑动时继续沿用边缘解析'),
               subtitle: Text('仅作用于从此点开始的点击。关闭时移动仍按点击处理；开启后保留点击，达到此点步距再进入边缘解析。'),
-              value: p.allowPointToEdge,
+              value: pointConfig.allowPointToEdge,
               onChanged: !pointSettingsEditable
                   ? null
-                  : (value) => change(p.copyWith(allowPointToEdge: value)),
+                  : (value) => updatePointConfig(
+                      pointConfig.copyWith(allowPointToEdge: value),
+                    ),
             ),
           ],
         ),
@@ -1238,24 +1252,28 @@ class TouchpadDiagram extends StatelessWidget {
   const TouchpadDiagram({
     super.key,
     required this.edges,
-    this.selected,
-    this.onSelect,
+    this.selectedEdge,
+    this.onEdgeSelected,
   });
   final List<EdgeConfig> edges;
-  final EdgeSide? selected;
-  final ValueChanged<EdgeSide>? onSelect;
+  final EdgeSide? selectedEdge;
+  final ValueChanged<EdgeSide>? onEdgeSelected;
   @override
   Widget build(BuildContext context) => Stack(
     children: [
       Positioned.fill(
         child: CustomPaint(
-          painter: _PadPainter(Theme.of(context).colorScheme, edges, selected),
+          painter: _EdgePainter(
+            Theme.of(context).colorScheme,
+            edges,
+            selectedEdge,
+          ),
         ),
       ),
-      if (onSelect != null) ...[
-        for (final s in EdgeSide.values)
+      if (onEdgeSelected != null) ...[
+        for (final edgeSide in EdgeSide.values)
           Align(
-            alignment: switch (s) {
+            alignment: switch (edgeSide) {
               EdgeSide.top => Alignment.topCenter,
               EdgeSide.bottom => Alignment.bottomCenter,
               EdgeSide.left => Alignment.centerLeft,
@@ -1268,14 +1286,14 @@ class TouchpadDiagram extends StatelessWidget {
               container: true,
               child: Tooltip(
                 message:
-                    '${edgeNames[s.index]}：${actionNames[edges[s.index].action.index]}',
+                    '${edgeNames[edgeSide.index]}：${actionNames[edges[edgeSide.index].action.index]}',
                 child: IconButton(
-                  onPressed: () => onSelect!(s),
+                  onPressed: () => onEdgeSelected!(edgeSide),
                   icon: Icon(
-                    s == EdgeSide.left || s == EdgeSide.right
+                    edgeSide == EdgeSide.left || edgeSide == EdgeSide.right
                         ? Icons.swap_vert
                         : Icons.swap_horiz,
-                    color: selected == s
+                    color: selectedEdge == edgeSide
                         ? Theme.of(context).colorScheme.primary
                         : null,
                   ),
@@ -1292,12 +1310,12 @@ class PointDiagram extends StatelessWidget {
   const PointDiagram({
     super.key,
     required this.points,
-    this.selected,
-    this.onSelect,
+    this.selectedPoint,
+    this.onPointSelected,
   });
   final List<PointConfig> points;
-  final PointPosition? selected;
-  final ValueChanged<PointPosition>? onSelect;
+  final PointPosition? selectedPoint;
+  final ValueChanged<PointPosition>? onPointSelected;
 
   @override
   Widget build(BuildContext context) => Stack(
@@ -1307,15 +1325,15 @@ class PointDiagram extends StatelessWidget {
           painter: _PointPainter(
             Theme.of(context).colorScheme,
             points,
-            selected,
+            selectedPoint,
           ),
         ),
       ),
       Center(
         child: Text(
-          selected == null
+          selectedPoint == null
               ? '选择焦点'
-              : '${pointNames[selected!.index]}\n半径 ${points[selected!.index].radius}% 短边',
+              : '${pointNames[selectedPoint!.index]}\n半径 ${points[selectedPoint!.index].radius}% 短边',
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 12),
         ),
@@ -1330,18 +1348,20 @@ class PointDiagram extends StatelessWidget {
           },
           child: Semantics(
             container: true,
-            selected: selected == position,
+            selected: selectedPoint == position,
             child: Tooltip(
               message:
                   '${pointNames[position.index]}：${points[position.index].description}，半径 ${points[position.index].radius}%',
               excludeFromSemantics: true,
               child: IconButton(
-                onPressed: onSelect == null ? null : () => onSelect!(position),
+                onPressed: onPointSelected == null
+                    ? null
+                    : () => onPointSelected!(position),
                 icon: Icon(
                   Icons.adjust,
                   semanticLabel:
                       '${pointNames[position.index]}：${points[position.index].description}，半径 ${points[position.index].radius}%',
-                  color: selected == position
+                  color: selectedPoint == position
                       ? Theme.of(context).colorScheme.primary
                       : null,
                 ),
@@ -1354,10 +1374,10 @@ class PointDiagram extends StatelessWidget {
 }
 
 class _PointPainter extends CustomPainter {
-  _PointPainter(this.scheme, this.points, this.selected);
+  _PointPainter(this.scheme, this.points, this.selectedPoint);
   final ColorScheme scheme;
   final List<PointConfig> points;
-  final PointPosition? selected;
+  final PointPosition? selectedPoint;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1366,19 +1386,19 @@ class _PointPainter extends CustomPainter {
     canvas.save();
     canvas.clipRect(rect);
     for (final position in PointPosition.values) {
-      final p = points[position.index];
+      final pointConfig = points[position.index];
       final center =
           rect.topLeft +
           Offset(position.centerX(rect.width), position.centerY(rect.height));
-      final radius = p.radiusFor(rect.width, rect.height);
+      final radius = pointConfig.radiusFor(rect.width, rect.height);
       canvas.drawCircle(
         center,
         radius,
         Paint()
           ..color = scheme.primary.withValues(
-            alpha: selected == position
+            alpha: selectedPoint == position
                 ? .6
-                : p.enabled
+                : pointConfig.enabled
                 ? .3
                 : .08,
           ),
@@ -1391,7 +1411,7 @@ class _PointPainter extends CustomPainter {
           ..color = scheme.primary.withValues(alpha: .6),
       );
       canvas.drawCircle(center, 2, Paint()..color = scheme.primary);
-      if (selected == position) {
+      if (selectedPoint == position) {
         // The diagonal radius stays inside the quarter circle.
         final dx = (position.index.isOdd ? -1 : 1) * radius * .7071067811865476;
         final dy = (position.index >= 2 ? -1 : 1) * radius * .7071067811865476;
@@ -1416,15 +1436,15 @@ class _PointPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _PointPainter oldDelegate) =>
       oldDelegate.points != points ||
-      oldDelegate.selected != selected ||
+      oldDelegate.selectedPoint != selectedPoint ||
       oldDelegate.scheme != scheme;
 }
 
-class _PadPainter extends CustomPainter {
-  _PadPainter(this.scheme, this.edges, this.selected);
+class _EdgePainter extends CustomPainter {
+  _EdgePainter(this.scheme, this.edges, this.selectedEdge);
   final ColorScheme scheme;
   final List<EdgeConfig> edges;
-  final EdgeSide? selected;
+  final EdgeSide? selectedEdge;
   @override
   void paint(Canvas canvas, Size size) {
     // Leave the same clearance for the arrow icons on all four sides.
@@ -1433,15 +1453,15 @@ class _PadPainter extends CustomPainter {
     canvas.drawRRect(rounded, Paint()..color = scheme.surfaceContainerHighest);
     canvas.save();
     canvas.clipRRect(rounded);
-    for (final s in EdgeSide.values) {
-      final edge = edges[s.index];
+    for (final edgeSide in EdgeSide.values) {
+      final edgeConfig = edges[edgeSide.index];
       final width =
-          (s == EdgeSide.top || s == EdgeSide.bottom
+          (edgeSide == EdgeSide.top || edgeSide == EdgeSide.bottom
               ? rect.height
               : rect.width) *
-          edge.width /
+          edgeConfig.width /
           100;
-      final band = switch (s) {
+      final band = switch (edgeSide) {
         EdgeSide.top => Rect.fromLTWH(rect.left, rect.top, rect.width, width),
         EdgeSide.bottom => Rect.fromLTWH(
           rect.left,
@@ -1461,9 +1481,9 @@ class _PadPainter extends CustomPainter {
         band,
         Paint()
           ..color = scheme.primary.withValues(
-            alpha: selected == s
+            alpha: selectedEdge == edgeSide
                 ? .6
-                : edge.enabled
+                : edgeConfig.enabled
                 ? .3
                 : .06,
           ),
@@ -1480,8 +1500,8 @@ class _PadPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _PadPainter oldDelegate) =>
+  bool shouldRepaint(covariant _EdgePainter oldDelegate) =>
       oldDelegate.edges != edges ||
-      oldDelegate.selected != selected ||
+      oldDelegate.selectedEdge != selectedEdge ||
       oldDelegate.scheme != scheme;
 }
