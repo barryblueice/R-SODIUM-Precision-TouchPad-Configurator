@@ -1029,7 +1029,16 @@ class _ConfiguratorState extends State<Configurator> {
             DropdownButtonFormField<PointAction>(
               key: ValueKey('point-${selected?.name}-${p.action.name}'),
               initialValue: p.action,
-              decoration: const InputDecoration(labelText: '绑定功能'),
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: '绑定功能',
+                helperText:
+                    p.action.isFunctionKey &&
+                        c.capabilities & Capability.pointFunctionKeys == 0
+                    ? '当前设备不支持此功能键，此点设置仅保留为预览。'
+                    : null,
+                helperMaxLines: 2,
+              ),
               items: [
                 for (final action in PointAction.values)
                   DropdownMenuItem(

@@ -115,6 +115,8 @@ class DeviceClient {
       }
       if ((capabilities & Capability.points == 0 &&
               config.points.any((p) => !p.isDefault)) ||
+          (capabilities & Capability.pointFunctionKeys == 0 &&
+              config.points.any((p) => p.action.isFunctionKey)) ||
           (capabilities & Capability.pointToEdge == 0 &&
               config.pointToEdgeMask != 0)) {
         throw const FormatException('单点配置与固件能力不一致');

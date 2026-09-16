@@ -12,9 +12,10 @@ abstract final class Capability {
   static const points = 256;
   static const pointToEdge = 512;
   static const wirelessThresholds = 1024;
+  static const pointFunctionKeys = 2048;
   static const v1 = 255;
-  static const v2 = 1023;
-  static const all = 2047;
+  static const v2 = 3071;
+  static const all = 4095;
 
   static int negotiated(int mask, int configVersion) {
     mask &= switch (configVersion) {
@@ -26,7 +27,7 @@ abstract final class Capability {
     if (mask & edges == 0) {
       mask &= ~(edgeArrowKeys | edgeRepeat | pointToEdge);
     }
-    if (mask & points == 0) mask &= ~pointToEdge;
+    if (mask & points == 0) mask &= ~(pointToEdge | pointFunctionKeys);
     return mask;
   }
 }
@@ -80,10 +81,49 @@ enum PointAction {
   arrowUp,
   arrowDown,
   arrowRight,
-  arrowLeft;
+  arrowLeft,
+  // Wire IDs are enum indices. Append new actions; never reorder existing ones.
+  mute,
+  playPause,
+  previousTrack,
+  nextTrack,
+  mediaStop,
+  escape,
+  enter,
+  tab,
+  space,
+  backspace,
+  delete,
+  insert,
+  home,
+  end,
+  pageUp,
+  pageDown,
+  printScreen,
+  f1,
+  f2,
+  f3,
+  f4,
+  f5,
+  f6,
+  f7,
+  f8,
+  f9,
+  f10,
+  f11,
+  f12,
+  copy,
+  paste,
+  cut,
+  undo,
+  redo,
+  selectAll;
 
-  PointAction get opposite =>
-      this == off ? off : values[index.isOdd ? index + 1 : index - 1];
+  bool get isFunctionKey => index >= mute.index;
+
+  PointAction get opposite => this == off || isFunctionKey
+      ? this
+      : values[index.isOdd ? index + 1 : index - 1];
 }
 
 const pointNames = ['左上点', '右上点', '左下点', '右下点'];
@@ -101,6 +141,41 @@ const pointActionNames = [
   '方向键 ↓',
   '方向键 →',
   '方向键 ←',
+  '静音',
+  '播放 / 暂停',
+  '上一曲',
+  '下一曲',
+  '停止播放',
+  'Esc',
+  'Enter',
+  'Tab',
+  '空格',
+  'Backspace',
+  'Delete',
+  'Insert',
+  'Home',
+  'End',
+  'Page Up',
+  'Page Down',
+  'Print Screen',
+  'F1',
+  'F2',
+  'F3',
+  'F4',
+  'F5',
+  'F6',
+  'F7',
+  'F8',
+  'F9',
+  'F10',
+  'F11',
+  'F12',
+  '复制（Ctrl+C）',
+  '粘贴（Ctrl+V）',
+  '剪切（Ctrl+X）',
+  '撤销（Ctrl+Z）',
+  '重做（Ctrl+Y）',
+  '全选（Ctrl+A）',
 ];
 
 class PointConfig {
@@ -403,7 +478,9 @@ class TouchpadConfig {
         final radiusOffset = version == 2 ? 3 : 2;
         if (b[i] > 1 ||
             b[i + 1] >= PointAction.values.length ||
-            (version == 2 && b[i + 2] > 1)) {
+            (version == 2 &&
+                (b[i + 2] > 1 ||
+                    (b[i + 2] == 1 && b[i + 1] >= PointAction.mute.index)))) {
           throw const FormatException('单点枚举无效');
         }
         points.add(
@@ -496,6 +573,10 @@ class TouchpadConfig {
     sleepMs: mask & Capability.sleep != 0 ? draft.sleepMs : sleepMs,
     edges: List.generate(4, (i) => _mergeEdge(edges[i], draft.edges[i], mask)),
     points: List.generate(4, (i) {
+      if (draft.points[i].action.isFunctionKey &&
+          mask & Capability.pointFunctionKeys == 0) {
+        return points[i];
+      }
       final base = mask & Capability.points != 0 ? draft.points[i] : points[i];
       return base.copyWith(
         allowPointToEdge:

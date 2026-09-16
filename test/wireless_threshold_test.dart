@@ -75,7 +75,7 @@ void main() {
         (50, 101),
         (51, 1),
         (32, 2),
-        (33, 13),
+        (33, PointAction.values.length),
       ]) {
         final invalid = Uint8List.fromList(bytes)..[change.$1] = change.$2;
         expect(

@@ -207,7 +207,10 @@ void main() {
       Packet.decode(vector('point_info_response')).payload,
     );
     expect(info.configVersion, 2);
-    expect(info.capabilities, Capability.v2);
+    expect(
+      info.capabilities,
+      0x3ff,
+    ); // Original v2 fixture, before function keys.
     expect(
       config.encode(version: 2).sublist(12, 32),
       config
@@ -298,7 +301,7 @@ void main() {
     for (final change in [
       (6, 32),
       (32, 2),
-      (33, 13),
+      (33, PointAction.values.length),
       (34, 2),
       (35, 0),
       (35, 31),

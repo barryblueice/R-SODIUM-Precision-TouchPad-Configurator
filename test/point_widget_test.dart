@@ -14,13 +14,16 @@ void main() {
     WidgetTester tester, {
     bool legacy = false,
     bool connected = true,
+    int capabilities = Capability.all,
     Size size = const Size(1280, 900),
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final c = AppController(transport: MockHidTransport(legacy: legacy));
+    final c = AppController(
+      transport: MockHidTransport(legacy: legacy, capabilities: capabilities),
+    );
     addTearDown(c.dispose);
     if (connected) await c.scan();
     await tester.pumpWidget(TouchpadApp(controller: c));
@@ -35,6 +38,64 @@ void main() {
     await tester.tap(finder);
     await tester.pumpAndSettle();
   }
+
+  testWidgets('Function keys can be selected, saved and read back', (
+    tester,
+  ) async {
+    final c = await show(tester);
+    await tapVisible(tester, find.widgetWithText(ChoiceChip, '左上点'));
+    await tapVisible(tester, find.text('启用此焦点'));
+    for (final action in [
+      PointAction.mute,
+      PointAction.f12,
+      PointAction.copy,
+    ]) {
+      await tapVisible(
+        tester,
+        find.byType(DropdownButtonFormField<PointAction>),
+      );
+      final item = find.text(pointActionNames[action.index]);
+      await tester.scrollUntilVisible(
+        item,
+        300,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(item);
+      await tester.pumpAndSettle();
+      expect(c.draft.points[0].action, action);
+      expect(c.canApply, isTrue);
+      await c.apply();
+      await c.refresh();
+      await tester.pumpAndSettle();
+      expect(c.error, isNull);
+      expect(c.draft.points[0].action, action);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('Unsupported function keys show a point preview notice', (
+    tester,
+  ) async {
+    final c = await show(tester, capabilities: 0x7ff);
+    await tapVisible(tester, find.widgetWithText(ChoiceChip, '左上点'));
+    c.update(
+      c.draft.copyWith(
+        points: [
+          const PointConfig(enabled: true, action: PointAction.copy),
+          ...c.draft.points.skip(1),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byType(DropdownButtonFormField<PointAction>),
+    );
+    expect(find.text('当前设备不支持此功能键，此点设置仅保留为预览。'), findsOneWidget);
+    expect(c.canApply, isFalse);
+    expect(c.unsupportedChanges, isTrue);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'Four point editors retain independent actions, radii and edge selection',
