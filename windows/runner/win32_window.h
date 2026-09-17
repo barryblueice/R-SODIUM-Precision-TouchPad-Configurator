@@ -12,6 +12,10 @@
 // rendering and input handling
 class Win32Window {
  public:
+  // Application-specific identity, shared by window creation and activation.
+  static constexpr wchar_t kWindowClassName[] =
+      L"RSODIUM_TOUCHPAD_CONFIGURATOR_WINDOW";
+
   struct Point {
     unsigned int x;
     unsigned int y;
