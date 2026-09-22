@@ -52,6 +52,11 @@ enum EdgeAction {
 
   bool get isArrowKey =>
       this == verticalArrowKeys || this == horizontalArrowKeys;
+
+  bool get usesTriggerStep => switch (this) {
+    brightness || volume || verticalWheel || horizontalWheel => true,
+    _ => false,
+  };
 }
 
 const edgeNames = ['上边缘', '下边缘', '左边缘', '右边缘'];
@@ -121,6 +126,18 @@ enum PointAction {
 
   bool get isFunctionKey => index >= mute.index;
 
+  bool get usesTriggerStep => switch (this) {
+    brightnessUp ||
+    brightnessDown ||
+    volumeUp ||
+    volumeDown ||
+    wheelUp ||
+    wheelDown ||
+    wheelRight ||
+    wheelLeft => true,
+    _ => false,
+  };
+
   PointAction get opposite => this == off || isFunctionKey
       ? this
       : values[index.isOdd ? index + 1 : index - 1];
@@ -183,7 +200,7 @@ class PointConfig {
     this.enabled = false,
     this.action = PointAction.off,
     this.radius = 5,
-    this.step = 2,
+    this.step = 1,
     this.repeatWhileHeld = false,
     this.allowPointToEdge = false,
   });
@@ -223,7 +240,7 @@ class PointConfig {
       !enabled &&
       action == PointAction.off &&
       radius == 5 &&
-      step == 2 &&
+      step == 1 &&
       !repeatWhileHeld &&
       !allowPointToEdge;
 
@@ -259,7 +276,7 @@ class EdgeConfig {
     this.action = EdgeAction.off,
     this.reversed = false,
     this.width = 5,
-    this.step = 2,
+    this.step = 1,
     this.repeatWhileHeld = false,
   });
   final bool enabled;

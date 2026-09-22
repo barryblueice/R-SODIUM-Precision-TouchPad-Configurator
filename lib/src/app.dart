@@ -916,15 +916,16 @@ class _ConfiguratorState extends State<Configurator> {
               suffix: '%',
               enabled: edgeSettingsEditable,
             ),
-            _slider(
-              '触发步距',
-              edgeConfig.step,
-              1,
-              10,
-              (value) => updateEdgeConfig(edgeConfig.copyWith(step: value)),
-              suffix: '%',
-              enabled: edgeSettingsEditable,
-            ),
+            if (edgeConfig.action.usesTriggerStep)
+              _slider(
+                '触发步距',
+                edgeConfig.step,
+                1,
+                10,
+                (value) => updateEdgeConfig(edgeConfig.copyWith(step: value)),
+                suffix: '%',
+                enabled: edgeSettingsEditable,
+              ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: const Text('反转滑动方向'),
@@ -972,7 +973,7 @@ class _ConfiguratorState extends State<Configurator> {
     return [
       _card(
         '焦点区域',
-        '圆心固定在四角，半径按触控板短边百分比计算。单点与边缘分别设置。',
+        '圆心固定在四角，半径按触控板短边百分比计算。',
         Column(
           children: [
             SizedBox(
@@ -1079,15 +1080,16 @@ class _ConfiguratorState extends State<Configurator> {
               suffix: '%',
               enabled: pointSettingsEditable,
             ),
-            _slider(
-              '触发步距',
-              pointConfig.step,
-              1,
-              10,
-              (value) => updatePointConfig(pointConfig.copyWith(step: value)),
-              suffix: '%',
-              enabled: pointSettingsEditable,
-            ),
+            if (pointConfig.action.usesTriggerStep)
+              _slider(
+                '触发步距',
+                pointConfig.step,
+                1,
+                10,
+                (value) => updatePointConfig(pointConfig.copyWith(step: value)),
+                suffix: '%',
+                enabled: pointSettingsEditable,
+              ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: const Text('手指不抬起继续动作'),
@@ -1102,7 +1104,11 @@ class _ConfiguratorState extends State<Configurator> {
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: const Text('允许点转为滑动时继续沿用边缘解析'),
-              subtitle: Text('仅作用于从此点开始的点击。关闭时移动仍按点击处理；开启后保留点击，达到此点步距再进入边缘解析。'),
+              subtitle: Text(
+                pointConfig.action.usesTriggerStep
+                    ? '仅作用于从此点开始的点击。关闭时移动仍按点击处理；开启后保留点击，达到此点步距再进入边缘解析。'
+                    : '仅作用于从此点开始的点击。关闭时移动仍按点击处理；开启后保留点击，继续滑动可进入边缘解析。',
+              ),
               value: pointConfig.allowPointToEdge,
               onChanged: !pointSettingsEditable
                   ? null
