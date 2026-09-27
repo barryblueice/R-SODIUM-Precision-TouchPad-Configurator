@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "R-SODIUM" "\0"
-            VALUE "FileDescription", "R-SODIUM TouchPad Configurator" "\0"
+            VALUE "FileDescription", "R-SODIUM Precision TouchPad Configurator" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "rsodium_touchpad" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 technology.rsodium. All rights reserved." "\0"
             VALUE "OriginalFilename", "rsodium_touchpad.exe" "\0"
-            VALUE "ProductName", "R-SODIUM TouchPad Configurator" "\0"
+            VALUE "ProductName", "R-SODIUM Precision TouchPad Configurator" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

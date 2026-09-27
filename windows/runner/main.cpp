@@ -76,7 +76,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
   if (instance_result == ApplicationInstance::Result::error) {
     ::MessageBoxW(nullptr, L"无法检查程序运行状态，请稍后重试。",
-                  L"R-SODIUM TouchPad Configurator", MB_OK | MB_ICONERROR);
+                  L"R-SODIUM Precision TouchPad Configurator", MB_OK | MB_ICONERROR);
     return EXIT_FAILURE;
   }
 
@@ -100,7 +100,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  if (!window.Create(L"R-SODIUM TouchPad Configurator", origin, size)) {
+  if (!window.Create(L"R-SODIUM Precision TouchPad Configurator", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

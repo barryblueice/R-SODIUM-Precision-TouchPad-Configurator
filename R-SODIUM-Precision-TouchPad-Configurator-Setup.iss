@@ -71,7 +71,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 const
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppId}_is1';
   { Keep this title in sync with window.Create in windows/runner/main.cpp. }
-  AppWindowTitle = 'R-SODIUM TouchPad Configurator';
+  AppWindowTitle = 'R-SODIUM Precision TouchPad Configurator';
 
 function UninstallPreviousVersion(RootKey: Integer): String;
 var
