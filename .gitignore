@@ -44,3 +44,7 @@ Thumbs.db
 Desktop.ini
 
 # 本项目是应用：保留 pubspec.lock、.metadata、源码和 Windows manifest。
+
+# Markdown documents stay local; keep the root README tracked.
+*.[mM][dD]
+!/README.md
