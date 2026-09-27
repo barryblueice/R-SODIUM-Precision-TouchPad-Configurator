@@ -115,7 +115,7 @@ class MockHidTransport extends HidTransport {
   MockHidTransport({
     this.legacy = false,
     this.capabilities = Capability.all,
-    this.configVersion = 4,
+    this.configVersion = 5,
   }) : config = TouchpadConfig(
          autoSwitchConnection:
              !legacy &&

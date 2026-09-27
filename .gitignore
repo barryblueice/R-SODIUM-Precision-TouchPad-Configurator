@@ -14,9 +14,10 @@
 # 文档保留为本地文件，不纳入版本控制
 /docs/
 
-# 既有测试保留为本地文件；自动切换专项测试随功能交付
+# 既有测试保留为本地文件；其他设置专项测试随功能交付
 /test/*
 !/test/auto_switch_connection_test.dart
+!/test/custom_gesture_haptics_test.dart
 
 # Windows Flutter 临时文件
 /windows/flutter/ephemeral/

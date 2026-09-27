@@ -14,17 +14,20 @@ abstract final class Capability {
   static const wirelessThresholds = 1024;
   static const pointFunctionKeys = 2048;
   static const autoSwitchConnection = 4096;
+  static const customGestureHaptics = 8192;
   static const v1 = 255;
   static const v2 = 3071;
   static const v3 = 4095;
-  static const all = 8191;
+  static const v4 = 8191;
+  static const all = 16383;
 
   static int negotiated(int mask, int configVersion) {
     mask &= switch (configVersion) {
       1 => v1,
       2 => v2,
       3 => v3,
-      4 => all,
+      4 => v4,
+      5 => all,
       _ => 0,
     };
     if (mask & edges == 0) {
@@ -345,6 +348,7 @@ class TouchpadConfig {
     this.rotation = 0,
     this.sleepEnabled = true,
     this.autoSwitchConnection = false,
+    this.customGestureHaptics = true,
     this.sleepMs = 180000,
     List<EdgeConfig>? edges,
     List<PointConfig>? points,
@@ -356,12 +360,15 @@ class TouchpadConfig {
   static const v2ByteLength = 52;
   static const v3ByteLength = 52;
   static const v4ByteLength = 52;
+  static const v5ByteLength = 52;
   final int intensity, pressLevel, light, medium, strong, rotation, sleepMs;
   final int wirelessLight, wirelessMedium, wirelessStrong;
   final bool sleepEnabled;
   // false is the compatibility value for firmware without this capability.
   // Supporting firmware initializes its persisted setting to true.
   final bool autoSwitchConnection;
+  // Older layouts have no switch; true is the compatibility/default value.
+  final bool customGestureHaptics;
   final List<EdgeConfig> edges;
   final List<PointConfig> points;
   TouchpadConfig copyWith({
@@ -376,6 +383,7 @@ class TouchpadConfig {
     int? rotation,
     bool? sleepEnabled,
     bool? autoSwitchConnection,
+    bool? customGestureHaptics,
     int? sleepMs,
     List<EdgeConfig>? edges,
     List<PointConfig>? points,
@@ -391,6 +399,7 @@ class TouchpadConfig {
     rotation: rotation ?? this.rotation,
     sleepEnabled: sleepEnabled ?? this.sleepEnabled,
     autoSwitchConnection: autoSwitchConnection ?? this.autoSwitchConnection,
+    customGestureHaptics: customGestureHaptics ?? this.customGestureHaptics,
     sleepMs: sleepMs ?? this.sleepMs,
     edges: edges ?? this.edges,
     points: points ?? this.points,
@@ -436,7 +445,10 @@ class TouchpadConfig {
   Uint8List encode({int version = 1}) {
     final error = validationError;
     if (error != null) throw FormatException(error);
-    if (version < 1 || version > 4) throw const FormatException('配置结构版本不兼容');
+    if (version < 1 || version > 5) throw const FormatException('配置结构版本不兼容');
+    if (version < 5 && !customGestureHaptics) {
+      throw const FormatException('自定义手势振动反馈需要配置结构 v5');
+    }
     if (version < 4 && autoSwitchConnection) {
       throw const FormatException('自动切换连接需要配置结构 v4');
     }
@@ -474,17 +486,19 @@ class TouchpadConfig {
     if (version >= 3) {
       b.setRange(48, 51, [wirelessLight, wirelessMedium, wirelessStrong]);
     }
-    if (version == 4) b[51] = autoSwitchConnection ? 1 : 0;
+    if (version >= 4) b[51] = autoSwitchConnection ? 1 : 0;
+    if (version >= 5 && customGestureHaptics) b[51] |= 2;
     return b;
   }
 
   static TouchpadConfig decode(Uint8List b, {int version = 1}) {
-    if (version < 1 || version > 4) throw const FormatException('配置结构版本不兼容');
+    if (version < 1 || version > 5) throw const FormatException('配置结构版本不兼容');
     if (b.length != (version == 1 ? byteLength : v2ByteLength) ||
         (version == 1 && b[7] & 0xf0 != 0) ||
         b[6] > (version == 1 ? 1 : 31) ||
         (version == 3 && b[51] != 0) ||
-        (version == 4 && b[51] > 1)) {
+        (version == 4 && b[51] > 1) ||
+        (version == 5 && b[51] > 3)) {
       throw const FormatException('配置长度或保留字段错误');
     }
     final edges = <EdgeConfig>[];
@@ -538,7 +552,8 @@ class TouchpadConfig {
       wirelessLight: version >= 3 ? b[48] : 60,
       wirelessMedium: version >= 3 ? b[49] : 80,
       wirelessStrong: version >= 3 ? b[50] : 100,
-      autoSwitchConnection: version == 4 && b[51] == 1,
+      autoSwitchConnection: version >= 4 && b[51] & 1 != 0,
+      customGestureHaptics: version < 5 || b[51] & 2 != 0,
       rotation: b[5],
       sleepEnabled: b[6] & 1 != 0,
       sleepMs: ByteData.sublistView(b).getUint32(8, Endian.little),
@@ -603,6 +618,9 @@ class TouchpadConfig {
     autoSwitchConnection: mask & Capability.autoSwitchConnection != 0
         ? draft.autoSwitchConnection
         : autoSwitchConnection,
+    customGestureHaptics: mask & Capability.customGestureHaptics != 0
+        ? draft.customGestureHaptics
+        : customGestureHaptics,
     sleepEnabled: mask & Capability.sleep != 0
         ? draft.sleepEnabled
         : sleepEnabled,
@@ -643,6 +661,7 @@ class TouchpadConfig {
       wirelessMedium,
       wirelessStrong,
       autoSwitchConnection,
+      customGestureHaptics,
     ];
     final m = merge(other, mask);
     final b = [
@@ -663,6 +682,7 @@ class TouchpadConfig {
       m.wirelessMedium,
       m.wirelessStrong,
       m.autoSwitchConnection,
+      m.customGestureHaptics,
     ];
     return List.generate(a.length, (i) => a[i] == b[i]).every((v) => v);
   }

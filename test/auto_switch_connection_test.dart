@@ -145,8 +145,8 @@ void main() {
         () => TouchpadConfig.decode(Uint8List(51), version: 4),
         throwsFormatException,
       );
-      expect(() => TouchpadConfig().encode(version: 5), throwsFormatException);
-      final unknown = documentedVector('v4_info')..[10] = 5;
+      expect(() => TouchpadConfig().encode(version: 6), throwsFormatException);
+      final unknown = documentedVector('v4_info')..[10] = 6;
       expect(() => DeviceInfo.decode(unknown), throwsFormatException);
     },
   );
@@ -166,6 +166,7 @@ void main() {
     () async {
       final mock = MockHidTransport(
         capabilities: Capability.autoSwitchConnection,
+        configVersion: 4,
       );
       final c = AppController(transport: mock, isWindows11: true);
       addTearDown(c.dispose);
@@ -307,7 +308,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ListTile, '设备设置'));
       await tester.pumpAndSettle();
-      final toggle = find.widgetWithText(SwitchListTile, '自动切换有线／无线连接');
+      final toggle = find.widgetWithText(
+        SwitchListTile,
+        '当有线连接断开时，自动切换到2.4G无线连接',
+      );
       expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
       await tester.tap(toggle);
       await tester.pumpAndSettle();
@@ -351,7 +355,9 @@ void main() {
       await tester.tap(find.widgetWithText(ListTile, '设备设置'));
       await tester.pumpAndSettle();
       expect(find.text('当前设备不支持自动切换配置，此设置仅保留为预览，不会写入设备。'), findsOneWidget);
-      await tester.tap(find.widgetWithText(SwitchListTile, '自动切换有线／无线连接'));
+      await tester.tap(
+        find.widgetWithText(SwitchListTile, '当有线连接断开时，自动切换到2.4G无线连接'),
+      );
       await tester.pumpAndSettle();
       expect(c.draft.autoSwitchConnection, isTrue);
       expect(c.canApply, isFalse);

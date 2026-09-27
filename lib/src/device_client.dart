@@ -129,6 +129,10 @@ class DeviceClient {
           config.autoSwitchConnection) {
         throw const FormatException('自动切换连接配置与固件能力不一致');
       }
+      if (capabilities & Capability.customGestureHaptics == 0 &&
+          !config.customGestureHaptics) {
+        throw const FormatException('自定义手势振动反馈配置与固件能力不一致');
+      }
       known = capabilities;
       return config;
     }

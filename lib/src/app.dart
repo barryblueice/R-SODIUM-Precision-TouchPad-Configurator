@@ -805,7 +805,7 @@ class _ConfiguratorState extends State<Configurator> {
     ),
     const SizedBox(height: 20),
     _card(
-      '连接切换',
+      '其他设置',
       '',
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -820,9 +820,19 @@ class _ConfiguratorState extends State<Configurator> {
           ),
           if (c.connected && !c.supports(Capability.autoSwitchConnection))
             _notice('当前设备不支持自动切换配置，此设置仅保留为预览，不会写入设备。'),
+          const SizedBox(height: 12),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('触发自定义手势时开启振动反馈'),
+            value: c.draft.customGestureHaptics,
+            onChanged: !_editable
+                ? null
+                : (v) => c.update(c.draft.copyWith(customGestureHaptics: v)),
+          ),
+          if (c.connected && !c.supports(Capability.customGestureHaptics))
+            _notice('当前设备不支持自定义手势振动反馈配置，此设置仅保留为预览，不会写入设备。'),
         ],
       ),
-      capability: Capability.autoSwitchConnection,
     ),
   ];
   List<Widget> _edgePage() {
