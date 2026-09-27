@@ -58,7 +58,7 @@ class _ConfiguratorState extends State<Configurator> {
   EdgeSide? _selectedEdge;
   PointPosition? _selectedPoint;
   final Map<bool, String> _dfuSelections = {};
-  static const titles = ['设备信息', '触觉与按压', '方向与休眠', '边缘手势', '单点手势'];
+  static const titles = ['设备信息', '触觉设置', '设备设置', '边缘手势', '单点手势'];
   bool get _editable => c.connected && !c.busy;
   bool get _selectedDevicePresent =>
       c.devices.any((d) => d.id == c.selected?.id);
@@ -802,6 +802,27 @@ class _ConfiguratorState extends State<Configurator> {
         ],
       ),
       capability: Capability.sleep,
+    ),
+    const SizedBox(height: 20),
+    _card(
+      '连接切换',
+      '',
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('当有线连接断开时，自动切换到2.4G无线连接'),
+            value: c.draft.autoSwitchConnection,
+            onChanged: !_editable
+                ? null
+                : (v) => c.update(c.draft.copyWith(autoSwitchConnection: v)),
+          ),
+          if (c.connected && !c.supports(Capability.autoSwitchConnection))
+            _notice('当前设备不支持自动切换配置，此设置仅保留为预览，不会写入设备。'),
+        ],
+      ),
+      capability: Capability.autoSwitchConnection,
     ),
   ];
   List<Widget> _edgePage() {

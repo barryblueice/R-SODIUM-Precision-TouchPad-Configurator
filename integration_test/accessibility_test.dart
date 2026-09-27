@@ -31,7 +31,7 @@ void main() {
       await mouse.addPointer(location: const Offset(10, 10));
       debugPrint('ACCESSIBILITY_INITIALIZED');
       for (var cycle = 0; cycle < 3; cycle++) {
-        for (final title in ['方向与休眠', '边缘手势', '单点手势', '触觉与按压']) {
+        for (final title in ['设备设置', '边缘手势', '单点手势', '触觉设置']) {
           final nav = tester.getCenter(find.widgetWithText(ListTile, title));
           await mouse.moveTo(nav);
           await mouse.down(nav);

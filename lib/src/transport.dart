@@ -115,8 +115,14 @@ class MockHidTransport extends HidTransport {
   MockHidTransport({
     this.legacy = false,
     this.capabilities = Capability.all,
-    this.configVersion = 3,
-  });
+    this.configVersion = 4,
+  }) : config = TouchpadConfig(
+         autoSwitchConnection:
+             !legacy &&
+             Capability.negotiated(capabilities, configVersion) &
+                     Capability.autoSwitchConnection !=
+                 0,
+       );
   final bool legacy;
   final int capabilities;
   final int configVersion;
@@ -125,7 +131,7 @@ class MockHidTransport extends HidTransport {
   int writeStatus = Status.ok;
   int writes = 0;
   int dfuRequests = 0;
-  TouchpadConfig config = TouchpadConfig();
+  TouchpadConfig config;
   final Queue<Uint8List> replies = Queue();
   @override
   bool get isDemo => true;

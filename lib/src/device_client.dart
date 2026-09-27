@@ -125,6 +125,10 @@ class DeviceClient {
           !config.hasDefaultWirelessThresholds) {
         throw const FormatException('无线阈值与固件能力不一致');
       }
+      if (capabilities & Capability.autoSwitchConnection == 0 &&
+          config.autoSwitchConnection) {
+        throw const FormatException('自动切换连接配置与固件能力不一致');
+      }
       known = capabilities;
       return config;
     }

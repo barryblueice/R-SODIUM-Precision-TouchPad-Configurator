@@ -13,15 +13,18 @@ abstract final class Capability {
   static const pointToEdge = 512;
   static const wirelessThresholds = 1024;
   static const pointFunctionKeys = 2048;
+  static const autoSwitchConnection = 4096;
   static const v1 = 255;
   static const v2 = 3071;
-  static const all = 4095;
+  static const v3 = 4095;
+  static const all = 8191;
 
   static int negotiated(int mask, int configVersion) {
     mask &= switch (configVersion) {
       1 => v1,
       2 => v2,
-      3 => all,
+      3 => v3,
+      4 => all,
       _ => 0,
     };
     if (mask & edges == 0) {
@@ -341,6 +344,7 @@ class TouchpadConfig {
     this.wirelessStrong = 100,
     this.rotation = 0,
     this.sleepEnabled = true,
+    this.autoSwitchConnection = false,
     this.sleepMs = 180000,
     List<EdgeConfig>? edges,
     List<PointConfig>? points,
@@ -351,9 +355,13 @@ class TouchpadConfig {
   static const byteLength = 32;
   static const v2ByteLength = 52;
   static const v3ByteLength = 52;
+  static const v4ByteLength = 52;
   final int intensity, pressLevel, light, medium, strong, rotation, sleepMs;
   final int wirelessLight, wirelessMedium, wirelessStrong;
   final bool sleepEnabled;
+  // false is the compatibility value for firmware without this capability.
+  // Supporting firmware initializes its persisted setting to true.
+  final bool autoSwitchConnection;
   final List<EdgeConfig> edges;
   final List<PointConfig> points;
   TouchpadConfig copyWith({
@@ -367,6 +375,7 @@ class TouchpadConfig {
     int? wirelessStrong,
     int? rotation,
     bool? sleepEnabled,
+    bool? autoSwitchConnection,
     int? sleepMs,
     List<EdgeConfig>? edges,
     List<PointConfig>? points,
@@ -381,6 +390,7 @@ class TouchpadConfig {
     wirelessStrong: wirelessStrong ?? this.wirelessStrong,
     rotation: rotation ?? this.rotation,
     sleepEnabled: sleepEnabled ?? this.sleepEnabled,
+    autoSwitchConnection: autoSwitchConnection ?? this.autoSwitchConnection,
     sleepMs: sleepMs ?? this.sleepMs,
     edges: edges ?? this.edges,
     points: points ?? this.points,
@@ -426,7 +436,10 @@ class TouchpadConfig {
   Uint8List encode({int version = 1}) {
     final error = validationError;
     if (error != null) throw FormatException(error);
-    if (version < 1 || version > 3) throw const FormatException('配置结构版本不兼容');
+    if (version < 1 || version > 4) throw const FormatException('配置结构版本不兼容');
+    if (version < 4 && autoSwitchConnection) {
+      throw const FormatException('自动切换连接需要配置结构 v4');
+    }
     if (version < 3 && !hasDefaultWirelessThresholds) {
       throw const FormatException('无线阈值需要配置结构 v3');
     }
@@ -448,7 +461,7 @@ class TouchpadConfig {
     for (var i = 0; i < 4; i++) {
       b.setRange(12 + i * 5, 17 + i * 5, edges[i].bytes);
       if (version == 2) b.setRange(32 + i * 5, 37 + i * 5, points[i].bytes);
-      if (version == 3) {
+      if (version >= 3) {
         final p = points[i];
         b.setRange(32 + i * 4, 36 + i * 4, [
           p.enabled ? 1 : 0,
@@ -458,18 +471,20 @@ class TouchpadConfig {
         ]);
       }
     }
-    if (version == 3) {
+    if (version >= 3) {
       b.setRange(48, 51, [wirelessLight, wirelessMedium, wirelessStrong]);
     }
+    if (version == 4) b[51] = autoSwitchConnection ? 1 : 0;
     return b;
   }
 
   static TouchpadConfig decode(Uint8List b, {int version = 1}) {
-    if (version < 1 || version > 3) throw const FormatException('配置结构版本不兼容');
+    if (version < 1 || version > 4) throw const FormatException('配置结构版本不兼容');
     if (b.length != (version == 1 ? byteLength : v2ByteLength) ||
         (version == 1 && b[7] & 0xf0 != 0) ||
         b[6] > (version == 1 ? 1 : 31) ||
-        (version == 3 && b[51] != 0)) {
+        (version == 3 && b[51] != 0) ||
+        (version == 4 && b[51] > 1)) {
       throw const FormatException('配置长度或保留字段错误');
     }
     final edges = <EdgeConfig>[];
@@ -520,9 +535,10 @@ class TouchpadConfig {
       light: b[2],
       medium: b[3],
       strong: b[4],
-      wirelessLight: version == 3 ? b[48] : 60,
-      wirelessMedium: version == 3 ? b[49] : 80,
-      wirelessStrong: version == 3 ? b[50] : 100,
+      wirelessLight: version >= 3 ? b[48] : 60,
+      wirelessMedium: version >= 3 ? b[49] : 80,
+      wirelessStrong: version >= 3 ? b[50] : 100,
+      autoSwitchConnection: version == 4 && b[51] == 1,
       rotation: b[5],
       sleepEnabled: b[6] & 1 != 0,
       sleepMs: ByteData.sublistView(b).getUint32(8, Endian.little),
@@ -584,6 +600,9 @@ class TouchpadConfig {
         ? draft.wirelessStrong
         : wirelessStrong,
     rotation: mask & Capability.rotation != 0 ? draft.rotation : rotation,
+    autoSwitchConnection: mask & Capability.autoSwitchConnection != 0
+        ? draft.autoSwitchConnection
+        : autoSwitchConnection,
     sleepEnabled: mask & Capability.sleep != 0
         ? draft.sleepEnabled
         : sleepEnabled,
@@ -623,6 +642,7 @@ class TouchpadConfig {
       wirelessLight,
       wirelessMedium,
       wirelessStrong,
+      autoSwitchConnection,
     ];
     final m = merge(other, mask);
     final b = [
@@ -642,6 +662,7 @@ class TouchpadConfig {
       m.wirelessLight,
       m.wirelessMedium,
       m.wirelessStrong,
+      m.autoSwitchConnection,
     ];
     return List.generate(a.length, (i) => a[i] == b[i]).every((v) => v);
   }
