@@ -812,7 +812,7 @@ class _ConfiguratorState extends State<Configurator> {
         children: [
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
-            title: const Text('当有线连接断开时，自动切换到2.4G无线连接'),
+            title: const Text('当有线连接断开时，自动切换到2.4G / 蓝牙无线连接'),
             value: c.draft.autoSwitchConnection,
             onChanged: !_editable
                 ? null

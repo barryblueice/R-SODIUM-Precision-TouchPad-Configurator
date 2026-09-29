@@ -310,7 +310,7 @@ void main() {
       await tester.pumpAndSettle();
       final toggle = find.widgetWithText(
         SwitchListTile,
-        '当有线连接断开时，自动切换到2.4G无线连接',
+        '当有线连接断开时，自动切换到2.4G / 蓝牙无线连接',
       );
       expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
       await tester.tap(toggle);
@@ -356,7 +356,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('当前设备不支持自动切换配置，此设置仅保留为预览，不会写入设备。'), findsOneWidget);
       await tester.tap(
-        find.widgetWithText(SwitchListTile, '当有线连接断开时，自动切换到2.4G无线连接'),
+        find.widgetWithText(SwitchListTile, '当有线连接断开时，自动切换到2.4G / 蓝牙无线连接'),
       );
       await tester.pumpAndSettle();
       expect(c.draft.autoSwitchConnection, isTrue);
