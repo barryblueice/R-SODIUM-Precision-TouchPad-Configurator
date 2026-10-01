@@ -681,7 +681,7 @@ class _ConfiguratorState extends State<Configurator> {
       const SizedBox(height: 20),
       _card(
         '无线连接三档阈值',
-        '无线连接下的压力值，范围 1～100；轻 ≤ 中 ≤ 重。',
+        '无线连接下的压力值，范围 1～255；轻 ≤ 中 ≤ 重。',
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -693,7 +693,7 @@ class _ConfiguratorState extends State<Configurator> {
                   label: '无线轻档阈值',
                   value: c.draft.wirelessLight,
                   min: 1,
-                  max: 100,
+                  max: 255,
                   enabled: _editable,
                   onChanged: (v) =>
                       c.update(c.draft.copyWith(wirelessLight: v)),
@@ -702,7 +702,7 @@ class _ConfiguratorState extends State<Configurator> {
                   label: '无线中档阈值',
                   value: c.draft.wirelessMedium,
                   min: 1,
-                  max: 100,
+                  max: 255,
                   enabled: _editable,
                   onChanged: (v) =>
                       c.update(c.draft.copyWith(wirelessMedium: v)),
@@ -711,7 +711,7 @@ class _ConfiguratorState extends State<Configurator> {
                   label: '无线重档阈值',
                   value: c.draft.wirelessStrong,
                   min: 1,
-                  max: 100,
+                  max: 255,
                   enabled: _editable,
                   onChanged: (v) =>
                       c.update(c.draft.copyWith(wirelessStrong: v)),

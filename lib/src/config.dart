@@ -411,10 +411,10 @@ class TouchpadConfig {
       return '有线压力阈值必须满足 1 ≤ 轻 ≤ 中 ≤ 重 ≤ 255';
     }
     if (wirelessLight < 1 ||
-        wirelessStrong > 100 ||
+        wirelessStrong > 255 ||
         wirelessLight > wirelessMedium ||
         wirelessMedium > wirelessStrong) {
-      return '无线压力阈值必须满足 1 ≤ 轻 ≤ 中 ≤ 重 ≤ 100';
+      return '无线压力阈值必须满足 1 ≤ 轻 ≤ 中 ≤ 重 ≤ 255';
     }
     if (rotation < 0 || rotation > 3) return '无效旋转方向';
     if (sleepMs < 1000 || sleepMs > 3600000 || sleepMs % 1000 != 0) {
